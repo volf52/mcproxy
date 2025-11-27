@@ -3,10 +3,11 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"mcproxy/pkg/logging"
 )
 
 // Config represents the main configuration structure
@@ -101,11 +102,14 @@ func ProcessSecretTemplates(config *Config, secrets Secrets) (map[string]Endpoin
 		processedEndpoint, missingVars := processEndpointTemplating(endpoint, secrets)
 
 		if len(missingVars) > 0 {
-			log.Printf("Warning: Skipping endpoint '%s' due to missing secret variables: %v", name, missingVars)
+			logging.Printf("Warning: Skipping endpoint '%s' due to missing secret variables: %v", name, missingVars)
 			skipped = append(skipped, name)
 		} else {
 			processed[name] = processedEndpoint
 		}
+
+		// Log template resolution details for debugging
+		logging.LogTemplateResolution(name, endpoint.Headers, processedEndpoint.Headers, missingVars)
 	}
 
 	return processed, skipped
@@ -120,7 +124,8 @@ func processEndpointTemplating(endpoint Endpoint, secrets Secrets) (Endpoint, []
 	for headerName, headerValue := range endpoint.Headers {
 		resolvedValue, missingVars, err := substituteTemplate(headerValue, secrets)
 		if err != nil {
-			log.Printf("Error processing header '%s': %v", headerName, err)
+			logging.Printf("Error processing header '%s': %v", headerName, err)
+			logging.Debugf("Template error details: header='%s', value='%s', error=%v", headerName, headerValue, err)
 			// Use original value if template processing fails
 			resolvedValue = headerValue
 		}
