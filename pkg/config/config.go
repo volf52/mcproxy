@@ -92,6 +92,33 @@ func validateEndpoints(endpoints map[string]Endpoint) error {
 	return nil
 }
 
+// LoadConfigWithDefaults loads configuration with backward compatibility
+// Uses hierarchical loading if available, falls back to original behavior
+func LoadConfigWithDefaults() (*Config, Secrets, error) {
+	// Try hierarchical loading first
+	result, err := LoadConfigHierarchical()
+	if err != nil {
+		// Fall back to original behavior if hierarchical loading fails
+		logging.Printf("Warning: Hierarchical loading failed, falling back to single file loading: %v", err)
+		cfg, err := LoadConfig()
+		if err != nil {
+			return nil, nil, err
+		}
+		secrets, err := LoadSecrets()
+		if err != nil {
+			return nil, nil, err
+		}
+		return cfg, secrets, nil
+	}
+
+	// Validate merged configuration
+	if err := validateMergedConfig(result.Config); err != nil {
+		return nil, nil, fmt.Errorf("invalid merged configuration: %w", err)
+	}
+
+	return result.Config, result.Secrets, nil
+}
+
 // ProcessSecretTemplates processes all endpoint headers with secret templating
 // Returns endpoints with resolved secrets and a list of skipped endpoints
 func ProcessSecretTemplates(config *Config, secrets Secrets) (map[string]Endpoint, []string) {
