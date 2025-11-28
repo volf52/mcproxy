@@ -1,2 +1,161 @@
 [tools]
 go = "latest"
+
+[tasks.build]
+description = "Build mcproxy for development"
+alias = "b"
+sources = ["./cmd/**/*.go", "./pkg/**/*.go", "./go.mod", "./go.sum"]
+outputs = ["dist/mcproxy"]
+run = "go build -o dist/mcproxy ./cmd/mcproxy"
+
+[tasks.release]
+description = "Build optimized mcproxy release binary"
+alias = "r"
+sources = [
+  "./cmd/**/*.go",
+  "./pkg/**/*.go",
+  "./go.mod",
+  "./go.sum",
+  "./build-release.sh"
+]
+outputs = [
+  "dist/mcproxy-{{env.TARGET_OS | default(go.env.GOOS)}}-{{env.TARGET_ARCH | default(go.env.GOARCH)}}"
+]
+run = "./build-release.sh"
+
+[tasks.release-all]
+description = "Build mcproxy for all platforms"
+alias = "ra"
+depends = [
+  "release-linux-amd64",
+  "release-linux-arm64",
+  "release-darwin-amd64",
+  "release-darwin-arm64",
+  "release-windows-amd64"
+]
+outputs = [
+  "dist/mcproxy-linux-amd64",
+  "dist/mcproxy-linux-arm64",
+  "dist/mcproxy-darwin-amd64",
+  "dist/mcproxy-darwin-arm64",
+  "dist/mcproxy-windows-amd64.exe"
+]
+
+[tasks.release-linux-amd64]
+description = "Build for Linux AMD64"
+alias = "rl"
+env = { TARGET_OS = "linux", TARGET_ARCH = "amd64" }
+sources = [
+  "./cmd/**/*.go",
+  "./pkg/**/*.go",
+  "./go.mod",
+  "./go.sum",
+  "./build-release.sh"
+]
+outputs = ["dist/mcproxy-linux-amd64"]
+run = "./build-release.sh"
+
+[tasks.release-linux-arm64]
+description = "Build for Linux ARM64"
+alias = "rla"
+env = { TARGET_OS = "linux", TARGET_ARCH = "arm64" }
+sources = [
+  "./cmd/**/*.go",
+  "./pkg/**/*.go",
+  "./go.mod",
+  "./go.sum",
+  "./build-release.sh"
+]
+outputs = ["dist/mcproxy-linux-arm64"]
+run = "./build-release.sh"
+
+[tasks.release-darwin-amd64]
+description = "Build for macOS AMD64"
+alias = "rd"
+env = { TARGET_OS = "darwin", TARGET_ARCH = "amd64" }
+sources = [
+  "./cmd/**/*.go",
+  "./pkg/**/*.go",
+  "./go.mod",
+  "./go.sum",
+  "./build-release.sh"
+]
+outputs = ["dist/mcproxy-darwin-amd64"]
+run = "./build-release.sh"
+
+[tasks.release-darwin-arm64]
+description = "Build for macOS ARM64 (Apple Silicon)"
+alias = "rda"
+env = { TARGET_OS = "darwin", TARGET_ARCH = "arm64" }
+sources = [
+  "./cmd/**/*.go",
+  "./pkg/**/*.go",
+  "./go.mod",
+  "./go.sum",
+  "./build-release.sh"
+]
+outputs = ["dist/mcproxy-darwin-arm64"]
+run = "./build-release.sh"
+
+[tasks.release-windows-amd64]
+description = "Build for Windows AMD64"
+alias = "rw"
+env = { TARGET_OS = "windows", TARGET_ARCH = "amd64" }
+sources = [
+  "./cmd/**/*.go",
+  "./pkg/**/*.go",
+  "./go.mod",
+  "./go.sum",
+  "./build-release.sh"
+]
+outputs = ["dist/mcproxy-windows-amd64.exe"]
+run = "./build-release.sh"
+
+[tasks.test]
+description = "Run tests"
+alias = "t"
+sources = ["./**/*.go", "./go.mod", "./go.sum"]
+run = "go test -v ./..."
+
+[tasks.test-coverage]
+description = "Run tests with coverage"
+alias = "tc"
+sources = ["./**/*.go", "./go.mod", "./go.sum"]
+outputs = ["coverage.out", "coverage.html"]
+run = [
+  "go test -v -coverprofile=coverage.out ./...",
+  "go tool cover -html=coverage.out -o coverage.html"
+]
+
+[tasks.clean]
+description = "Clean build artifacts"
+alias = "c"
+run = "rm -rf dist coverage.out coverage.html"
+
+[tasks.fmt]
+description = "Format code"
+alias = "f"
+run = "goimports -w ."
+
+[tasks.vet]
+description = "Run static analysis"
+alias = "v"
+sources = ["./**/*.go", "./go.mod", "./go.sum"]
+run = "go vet ./..."
+
+[tasks.check]
+description = "Run all quality checks"
+alias = "k"
+depends = ["fmt", "vet", "test"]
+
+[tasks.deps]
+description = "Install dependencies"
+alias = "d"
+sources = ["./go.mod", "./go.sum"]
+outputs = ["./go.sum"]
+run = ["go mod download", "go mod tidy"]
+
+[tasks.run]
+description = "Run mcproxy in development mode"
+alias = "dev"
+sources = ["./cmd/**/*.go", "./pkg/**/*.go", "./go.mod", "./go.sum"]
