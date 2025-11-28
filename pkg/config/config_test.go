@@ -99,7 +99,7 @@ func TestLoadSecrets(t *testing.T) {
 	tmpDir := t.TempDir()
 	secretsPath := filepath.Join(tmpDir, "secrets.json")
 	secretsContent := map[string]string{
-		"api_token": "secret123",
+		"api_token":   "secret123",
 		"db_password": "pass456",
 	}
 
@@ -161,11 +161,11 @@ func TestSubstituteTemplate(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		input          string
-		expected       string
+		name            string
+		input           string
+		expected        string
 		expectedMissing []string
-		expectError    bool
+		expectError     bool
 	}{
 		{
 			name:            "single template",

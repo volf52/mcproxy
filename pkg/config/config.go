@@ -13,7 +13,7 @@ import (
 // Config represents the main configuration structure
 type Config struct {
 	Endpoints map[string]Endpoint `json:"endpoints"`
-	LogFile   string             `json:"logFile,omitempty"`
+	LogFile   string              `json:"logFile,omitempty"`
 }
 
 // Endpoint represents a single proxy endpoint configuration

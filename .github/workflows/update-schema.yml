@@ -1,0 +1,93 @@
+name: Update JSON Schema
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_changes:
+        description: 'Commit schema changes if different'
+        required: true
+        default: true
+        type: boolean
+
+env:
+  GO_VERSION: '1.25.4'
+
+jobs:
+  update-schema:
+    name: Update JSON Schema
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Generate JSON Schema
+      id: generate-schema
+      run: |
+        echo "Generating JSON Schema..."
+        ./scripts/generate-schema.sh
+
+        # Check if schema file changed
+        if git diff --quiet config.schema.json; then
+          echo "schema_changed=false" >> $GITHUB_OUTPUT
+          echo "✅ JSON Schema is already up to date"
+        else
+          echo "schema_changed=true" >> $GITHUB_OUTPUT
+          echo "📝 JSON Schema has been updated"
+
+          # Show what changed
+          echo "Changes:"
+          git diff config.schema.json
+        fi
+
+    - name: Commit updated schema
+      if: steps.generate-schema.outputs.schema_changed == 'true' && github.event.inputs.commit_changes == 'true'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add config.schema.json
+        git commit -m "🤖 Auto-update JSON Schema
+
+        Generated from Go structs at $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+        Triggered by manual workflow dispatch
+
+        🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+        Co-Authored-By: GitHub Actions <action@github.com>"
+        git push
+
+    - name: Summary
+      run: |
+        if [ "${{ steps.generate-schema.outputs.schema_changed }}" == "true" ]; then
+          echo "## 📝 JSON Schema Updated" >> $GITHUB_STEP_SUMMARY
+          echo "The JSON Schema has been regenerated from the Go structs and contains updates." >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ github.event.inputs.commit_changes }}" == "true" ]; then
+            echo "- ✅ Changes have been automatically committed to the repository" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ⚠️ Changes detected but not committed (commit_changes=false)" >> $GITHUB_STEP_SUMMARY
+          fi
+        else
+          echo "## ✅ JSON Schema Up to Date" >> $GITHUB_STEP_SUMMARY
+          echo "The JSON Schema is already synchronized with the Go structs." >> $GITHUB_STEP_SUMMARY
+        fi

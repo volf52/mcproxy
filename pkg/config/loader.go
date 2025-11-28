@@ -11,8 +11,8 @@ import (
 
 // ConfigFileInfo holds information about loaded configuration files
 type ConfigFileInfo struct {
-	Path     string
-	Loaded   bool
+	Path      string
+	Loaded    bool
 	Endpoints int
 	Secrets   int
 }

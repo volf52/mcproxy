@@ -1,0 +1,26 @@
+{
+  "$schema": "./config.schema.json",
+  "endpoints": {
+    "webhook": {
+      "upstreamUrl": "https://api.example.com/webhook",
+      "headers": {
+        "Authorization": "Bearer {{ api_token }}",
+        "Content-Type": "application/json"
+      }
+    },
+    "slack": {
+      "upstreamUrl": "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+      "headers": {
+        "Content-Type": "application/json"
+      }
+    },
+    "proxy": {
+      "upstreamUrl": "http://localhost:3000/api",
+      "headers": {
+        "X-API-Key": "{{ secret_api_key }}",
+        "X-Forward-For": "{{ client_ip }}"
+      }
+    }
+  },
+  "logFile": "./logs/mcproxy.log"
+}

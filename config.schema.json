@@ -1,0 +1,36 @@
+{
+  "$id": "https://mcproxy.dev/schemas/config.json",
+  "title": "MCProxy Configuration Schema",
+  "description": "Configuration schema for mcproxy HTTP proxy service",
+  "definitions": {
+    "ConfigEndpoint": {
+      "properties": {
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "upstreamUrl": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "properties": {
+    "endpoints": {
+      "additionalProperties": {
+        "$ref": "#/definitions/ConfigEndpoint"
+      },
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "logFile": {
+      "type": "string"
+    }
+  },
+  "type": "object"
+}
