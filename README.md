@@ -4,9 +4,9 @@ A lightweight Go service that publishes dynamic HTTP POST endpoints and proxies 
 
 ## Quick Start
 - Prerequisites: Go 1.21+.
-- Defaults:
-  - Config file: `./config.json` (override with env `MCPROXY_CONFIG`).
-  - Secrets file: `~/secrets.json` (override with env `MCPROXY_SECRETS`).
+- Defaults (auto-detection prioritizes JSONC):
+  - Config file: `./config.jsonc` → `./config.json` (override with env `MCPROXY_CONFIG`).
+  - Secrets file: `~/secrets.jsonc` → `~/secrets.json` (override with env `MCPROXY_SECRETS`).
   - Listen address: `:8099`.
 - Build and run:
 ```bash
@@ -16,7 +16,18 @@ go build -o mcproxy
 
 ## Configuration
 
-The service uses JSON configuration files with automatic JSON Schema validation and autocomplete support.
+The service uses JSON configuration files with support for **JSONC (JSON with Comments)** for better documentation and maintainability. The service automatically detects file extensions and uses the appropriate parser.
+
+### File Detection Priority
+
+The service automatically detects and prioritizes JSONC files:
+
+- **Global config**: `~/config.jsonc` (preferred) → `~/config.json` (fallback)
+- **Global secrets**: `~/secrets.jsonc` (preferred) → `~/secrets.json` (fallback)
+- **Project config**: `./config.jsonc` (preferred) → `./config.json` (fallback)
+- **Project secrets**: `./secrets.jsonc` (preferred) → `./secrets.json` (fallback)
+
+JSONC supports both single-line (`//`) and multi-line (`/* */`) comments, making configuration files self-documenting.
 
 ### JSON Schema
 
@@ -33,7 +44,24 @@ Generate schema:
 go run cmd/generate-schema/main.go
 ```
 
-### Secrets (`~/secrets.json` by default)
+### Secrets (`~/secrets.jsonc` by default)
+
+**JSONC format (recommended) - `~/secrets.jsonc`:**
+```jsonc
+{
+  // API authentication token for billing service
+  "api_token": "super-secret-token",
+
+  // Slack webhook verification secret
+  "webhook_secret": "whsec_1234567890",
+
+  /* Slack signing secret for request validation
+     Used to verify incoming webhook requests */
+  "slack_signing": "v1_a1b2c3d4e5f6"
+}
+```
+
+**JSON format - `~/secrets.json`:**
 ```json
 {
   "api_token": "super-secret-token",
@@ -42,7 +70,40 @@ go run cmd/generate-schema/main.go
 }
 ```
 
-### Config (`./config.json` by default)
+### Config (`./config.jsonc` by default)
+
+**JSONC format (recommended) - `./config.jsonc`:**
+```jsonc
+{
+  // Use JSON Schema for validation and IDE autocomplete
+  "$schema": "./config.schema.json",
+
+  "endpoints": {
+    // Billing service endpoint - processes payment charges
+    "billing": {
+      "upstreamUrl": "https://billing.internal.local/v1/charge",
+      "headers": {
+        "Authorization": "Bearer {{ api_token }}", // Token from secrets file
+        "Content-Type": "application/json"
+      }
+    },
+
+    // Slack webhook endpoint - forwards messages to Slack channel
+    "slack-webhook": {
+      "upstreamUrl": "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+      "headers": {
+        "Content-Type": "application/json" // Slack expects JSON payloads
+      }
+    }
+  },
+
+  /* Log file path for structured logging
+     Leave empty/unspecified to log to stdout only */
+  "logFile": "./logs/mcproxy.log"
+}
+```
+
+**JSON format - `./config.json`:**
 ```json
 {
   "$schema": "./config.schema.json",

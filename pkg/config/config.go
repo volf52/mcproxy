@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,11 +24,16 @@ type Endpoint struct {
 // Secrets represents the secrets structure for template substitution
 type Secrets map[string]string
 
-// LoadConfig loads the main configuration from JSON file
+// LoadConfig loads the main configuration from JSON/JSONC file
 func LoadConfig() (*Config, error) {
 	configPath := os.Getenv("MCPROXY_CONFIG")
 	if configPath == "" {
-		configPath = "./config.json"
+		// Check for JSONC file first
+		if fileExists("./config.jsonc") {
+			configPath = "./config.jsonc"
+		} else {
+			configPath = "./config.json"
+		}
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -38,7 +42,7 @@ func LoadConfig() (*Config, error) {
 	}
 
 	var config Config
-	if err := json.Unmarshal(data, &config); err != nil {
+	if err := UnmarshalWithAutoDetection(data, &config, configPath); err != nil {
 		return nil, fmt.Errorf("failed to parse config file %s: %w", configPath, err)
 	}
 
@@ -50,7 +54,7 @@ func LoadConfig() (*Config, error) {
 	return &config, nil
 }
 
-// LoadSecrets loads secrets from JSON file
+// LoadSecrets loads secrets from JSON/JSONC file
 func LoadSecrets() (Secrets, error) {
 	secretsPath := os.Getenv("MCPROXY_SECRETS")
 	if secretsPath == "" {
@@ -58,7 +62,14 @@ func LoadSecrets() (Secrets, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to get user home directory: %w", err)
 		}
-		secretsPath = filepath.Join(home, "secrets.json")
+
+		// Check for JSONC file first
+		jsoncPath := filepath.Join(home, "secrets.jsonc")
+		if fileExists(jsoncPath) {
+			secretsPath = jsoncPath
+		} else {
+			secretsPath = filepath.Join(home, "secrets.json")
+		}
 	}
 
 	data, err := os.ReadFile(secretsPath)
@@ -67,7 +78,7 @@ func LoadSecrets() (Secrets, error) {
 	}
 
 	var secrets Secrets
-	if err := json.Unmarshal(data, &secrets); err != nil {
+	if err := UnmarshalWithAutoDetection(data, &secrets, secretsPath); err != nil {
 		return nil, fmt.Errorf("failed to parse secrets file %s: %w", secretsPath, err)
 	}
 

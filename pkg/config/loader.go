@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/marcozac/go-jsonc"
 	"mcproxy/pkg/logging"
 )
 
@@ -26,39 +28,69 @@ type HierarchicalLoadResult struct {
 }
 
 // getGlobalConfigPath returns the path to the global config file
+// Checks for .jsonc first, falls back to .json
 func getGlobalConfigPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		logging.Printf("Warning: Failed to get user home directory: %v", err)
 		return ""
 	}
+
+	// Check for JSONC file first
+	jsoncPath := filepath.Join(home, "config.jsonc")
+	if fileExists(jsoncPath) {
+		return jsoncPath
+	}
+
+	// Fall back to JSON file
 	return filepath.Join(home, "config.json")
 }
 
 // getGlobalSecretsPath returns the path to the global secrets file
+// Checks for .jsonc first, falls back to .json
 func getGlobalSecretsPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		logging.Printf("Warning: Failed to get user home directory: %v", err)
 		return ""
 	}
+
+	// Check for JSONC file first
+	jsoncPath := filepath.Join(home, "secrets.jsonc")
+	if fileExists(jsoncPath) {
+		return jsoncPath
+	}
+
+	// Fall back to JSON file
 	return filepath.Join(home, "secrets.json")
 }
 
 // getProjectConfigPath returns the path to the project config file
+// Checks for .jsonc first if no environment variable is set
 func getProjectConfigPath() string {
 	configPath := os.Getenv("MCPROXY_CONFIG")
 	if configPath == "" {
-		configPath = "./config.json"
+		// Check for JSONC file first
+		if fileExists("./config.jsonc") {
+			return "./config.jsonc"
+		}
+		// Fall back to JSON file
+		return "./config.json"
 	}
 	return configPath
 }
 
 // getProjectSecretsPath returns the path to the project secrets file
+// Checks for .jsonc first if no environment variable is set
 func getProjectSecretsPath() string {
 	secretsPath := os.Getenv("MCPROXY_SECRETS")
 	if secretsPath == "" {
-		secretsPath = "./secrets.json"
+		// Check for JSONC file first
+		if fileExists("./secrets.jsonc") {
+			return "./secrets.jsonc"
+		}
+		// Fall back to JSON file
+		return "./secrets.json"
 	}
 	return secretsPath
 }
@@ -70,6 +102,22 @@ func fileExists(path string) bool {
 	}
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+// IsJSONCFile checks if a file has .jsonc extension
+func IsJSONCFile(path string) bool {
+	return strings.HasSuffix(strings.ToLower(path), ".jsonc")
+}
+
+// UnmarshalWithAutoDetection automatically detects JSON or JSONC format and unmarshals accordingly
+func UnmarshalWithAutoDetection(data []byte, v interface{}, path string) error {
+	if IsJSONCFile(path) {
+		// Use JSONC parser for .jsonc files
+		return jsonc.Unmarshal(data, v)
+	} else {
+		// Use standard JSON parser for .json files and unknown extensions
+		return json.Unmarshal(data, v)
+	}
 }
 
 // loadConfigFromFile loads configuration from a file, returns nil if file doesn't exist
@@ -84,7 +132,7 @@ func loadConfigFromFile(path string) (*Config, error) {
 	}
 
 	var config Config
-	if err := json.Unmarshal(data, &config); err != nil {
+	if err := UnmarshalWithAutoDetection(data, &config, path); err != nil {
 		return nil, fmt.Errorf("failed to parse config file %s: %w", path, err)
 	}
 
@@ -104,7 +152,7 @@ func loadSecretsFromFile(path string) (Secrets, error) {
 	}
 
 	var secrets Secrets
-	if err := json.Unmarshal(data, &secrets); err != nil {
+	if err := UnmarshalWithAutoDetection(data, &secrets, path); err != nil {
 		return nil, fmt.Errorf("failed to parse secrets file %s: %w", path, err)
 	}
 

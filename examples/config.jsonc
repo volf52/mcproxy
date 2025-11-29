@@ -1,0 +1,32 @@
+{
+  // Example mcproxy configuration with JSONC support
+  // This demonstrates various comment styles and features
+
+  "endpoints": {
+    // Example API endpoint with authentication
+    "test-api": {
+      "upstreamUrl": "https://httpbin.org/post",
+      "headers": {
+        "Authorization": "Bearer {{ test_token }}", // Token from secrets file
+        "Content-Type": "application/json",
+        "X-Source": "mcproxy-jsonc-test" // Tracking header
+      }
+    },
+
+    /*
+     * Simple webhook endpoint
+     * Used for testing and demonstration purposes
+     */
+    "webhook": {
+      "upstreamUrl": "https://httpbin.org/webhook",
+      "headers": {
+        "User-Agent": "mcproxy/1.0" // Custom user agent
+      }
+    }
+  },
+
+  /* Log file configuration
+     Leave empty to log to stdout only
+     Specify path for file logging */
+  "logFile": "./logs/mcproxy.log"
+}

@@ -822,3 +822,397 @@ func TestLoadConfigWithDefaults(t *testing.T) {
 		t.Errorf("Expected 1 secret, got %d", len(secrets))
 	}
 }
+
+// JSONC Tests
+
+func TestIsJSONCFile(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected bool
+	}{
+		{"config.json", false},
+		{"config.jsonc", true},
+		{"config.JSONC", true},
+		{"Config.Jsonc", true},
+		{"/path/to/config.json", false},
+		{"/path/to/config.jsonc", true},
+		{"config.jsonc.txt", false},
+		{"json", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			result := IsJSONCFile(tt.path)
+			if result != tt.expected {
+				t.Errorf("Expected %v for path '%s', got %v", tt.expected, tt.path, result)
+			}
+		})
+	}
+}
+
+func TestUnmarshalWithAutoDetection_JSON(t *testing.T) {
+	// Test that standard JSON still works
+	jsonContent := `{
+		"endpoints": {
+			"test": {
+				"upstreamUrl": "https://example.com",
+				"headers": {
+					"Authorization": "Bearer token123"
+				}
+			}
+		},
+		"logFile": "/tmp/test.log"
+	}`
+
+	var config Config
+	err := UnmarshalWithAutoDetection([]byte(jsonContent), &config, "config.json")
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if len(config.Endpoints) != 1 {
+		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
+	}
+
+	if config.Endpoints["test"].UpstreamURL != "https://example.com" {
+		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].UpstreamURL)
+	}
+
+	if config.LogFile != "/tmp/test.log" {
+		t.Errorf("Expected log file '/tmp/test.log', got '%s'", config.LogFile)
+	}
+}
+
+func TestUnmarshalWithAutoDetection_JSONC(t *testing.T) {
+	// Test JSONC with single-line comments
+	jsoncContent := `{
+		// This is a single-line comment
+		"endpoints": {
+			"test": {
+				"upstreamUrl": "https://example.com", // inline comment
+				"headers": {
+					"Authorization": "Bearer token123"
+				}
+			}
+		},
+		"logFile": "/tmp/test.log" // trailing comment
+	}`
+
+	var config Config
+	err := UnmarshalWithAutoDetection([]byte(jsoncContent), &config, "config.jsonc")
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if len(config.Endpoints) != 1 {
+		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
+	}
+
+	if config.Endpoints["test"].UpstreamURL != "https://example.com" {
+		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].UpstreamURL)
+	}
+
+	if config.LogFile != "/tmp/test.log" {
+		t.Errorf("Expected log file '/tmp/test.log', got '%s'", config.LogFile)
+	}
+}
+
+func TestUnmarshalWithAutoDetection_JSONC_MultiLineComments(t *testing.T) {
+	// Test JSONC with multi-line comments
+	jsoncContent := `{
+		/* This is a multi-line comment
+		   that spans multiple lines */
+		"endpoints": {
+			"test": {
+				"upstreamUrl": "https://example.com" /* inline multi-line comment */,
+				"headers": {
+					"Authorization": "Bearer token123"
+				}
+			}
+		}
+		/* Another multi-line comment */
+	}`
+
+	var config Config
+	err := UnmarshalWithAutoDetection([]byte(jsoncContent), &config, "config.jsonc")
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if len(config.Endpoints) != 1 {
+		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
+	}
+
+	if config.Endpoints["test"].UpstreamURL != "https://example.com" {
+		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].UpstreamURL)
+	}
+}
+
+func TestUnmarshalWithAutoDetection_JSONC_MixedComments(t *testing.T) {
+	// Test JSONC with both single-line and multi-line comments
+	jsoncContent := `{
+		// Configuration for mcproxy service
+		"endpoints": {
+			"api": {
+				"upstreamUrl": "https://api.example.com",
+				"headers": {
+					/* Authentication header required for all requests */
+					"Authorization": "Bearer {{api_token}}",
+					"Content-Type": "application/json" // content type
+				}
+			},
+			"webhook": {
+				"upstreamUrl": "https://webhook.example.com",
+				// No custom headers needed for webhook
+				"headers": {}
+			}
+		},
+		"logFile": "/var/log/mcproxy.log" // log file location
+	}`
+
+	var config Config
+	err := UnmarshalWithAutoDetection([]byte(jsoncContent), &config, "config.jsonc")
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if len(config.Endpoints) != 2 {
+		t.Errorf("Expected 2 endpoints, got %d", len(config.Endpoints))
+	}
+
+	// Check API endpoint
+	if config.Endpoints["api"].UpstreamURL != "https://api.example.com" {
+		t.Errorf("Expected API upstream URL 'https://api.example.com', got '%s'", config.Endpoints["api"].UpstreamURL)
+	}
+
+	if config.Endpoints["api"].Headers["Authorization"] != "Bearer {{api_token}}" {
+		t.Errorf("Expected Authorization header 'Bearer {{api_token}}', got '%s'", config.Endpoints["api"].Headers["Authorization"])
+	}
+
+	// Check webhook endpoint
+	if config.Endpoints["webhook"].UpstreamURL != "https://webhook.example.com" {
+		t.Errorf("Expected webhook upstream URL 'https://webhook.example.com', got '%s'", config.Endpoints["webhook"].UpstreamURL)
+	}
+
+	if config.LogFile != "/var/log/mcproxy.log" {
+		t.Errorf("Expected log file '/var/log/mcproxy.log', got '%s'", config.LogFile)
+	}
+}
+
+func TestLoadConfig_JSONC(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.jsonc")
+
+	// JSONC content with comments
+	jsoncContent := `{
+		// API endpoint configuration
+		"endpoints": {
+			"test": {
+				"upstreamUrl": "https://example.com", // API server URL
+				"headers": {
+					"Authorization": "Bearer {{token}}" // auth token
+				}
+			}
+		},
+		"logFile": "/tmp/test.log" // log file location
+	}`
+
+	os.WriteFile(configPath, []byte(jsoncContent), 0644)
+
+	oldConfig := os.Getenv("MCPROXY_CONFIG")
+	os.Setenv("MCPROXY_CONFIG", configPath)
+	defer os.Setenv("MCPROXY_CONFIG", oldConfig)
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if len(config.Endpoints) != 1 {
+		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
+	}
+
+	if config.Endpoints["test"].UpstreamURL != "https://example.com" {
+		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].UpstreamURL)
+	}
+
+	if config.LogFile != "/tmp/test.log" {
+		t.Errorf("Expected log file '/tmp/test.log', got '%s'", config.LogFile)
+	}
+}
+
+func TestLoadSecrets_JSONC(t *testing.T) {
+	tmpDir := t.TempDir()
+	secretsPath := filepath.Join(tmpDir, "secrets.jsonc")
+
+	// JSONC content with comments
+	jsoncContent := `{
+		// API secrets
+		"api_token":   "secret123",       // main API token
+		"db_password": "pass456",         /* database password
+		                                    used for connections */
+		"webhook_secret": "webhook789"   // webhook verification secret
+	}`
+
+	os.WriteFile(secretsPath, []byte(jsoncContent), 0644)
+
+	oldSecrets := os.Getenv("MCPROXY_SECRETS")
+	os.Setenv("MCPROXY_SECRETS", secretsPath)
+	defer os.Setenv("MCPROXY_SECRETS", oldSecrets)
+
+	secrets, err := LoadSecrets()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if len(secrets) != 3 {
+		t.Errorf("Expected 3 secrets, got %d", len(secrets))
+	}
+
+	if secrets["api_token"] != "secret123" {
+		t.Errorf("Expected api_token 'secret123', got '%s'", secrets["api_token"])
+	}
+
+	if secrets["db_password"] != "pass456" {
+		t.Errorf("Expected db_password 'pass456', got '%s'", secrets["db_password"])
+	}
+
+	if secrets["webhook_secret"] != "webhook789" {
+		t.Errorf("Expected webhook_secret 'webhook789', got '%s'", secrets["webhook_secret"])
+	}
+}
+
+func TestLoadConfigHierarchical_JSONC(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Set up global JSONC config file
+	globalConfigPath := filepath.Join(tmpDir, "config.jsonc")
+	globalConfigContent := `{
+		// Global configuration
+		"endpoints": {
+			"global": {
+				"upstreamUrl": "https://global.com"
+			}
+		}
+	}`
+	os.WriteFile(globalConfigPath, []byte(globalConfigContent), 0644)
+
+	// Set up project JSONC config file
+	projectConfigPath := filepath.Join(tmpDir, "project_config.jsonc")
+	projectConfigContent := `{
+		// Project-specific configuration
+		"endpoints": {
+			"project": {
+				"upstreamUrl": "https://project.com"
+			}
+		}
+	}`
+	os.WriteFile(projectConfigPath, []byte(projectConfigContent), 0644)
+
+	// Set up global JSONC secrets file
+	globalSecretsPath := filepath.Join(tmpDir, "secrets.jsonc")
+	globalSecretsContent := `{
+		// Global secrets
+		"global_token": "global-secret"
+	}`
+	os.WriteFile(globalSecretsPath, []byte(globalSecretsContent), 0644)
+
+	// Set up project JSONC secrets file
+	projectSecretsPath := filepath.Join(tmpDir, "project_secrets.jsonc")
+	projectSecretsContent := `{
+		// Project secrets
+		"project_token": "project-secret"
+	}`
+	os.WriteFile(projectSecretsPath, []byte(projectSecretsContent), 0644)
+
+	// Mock environment
+	originalHome := os.Getenv("HOME")
+	originalConfig := os.Getenv("MCPROXY_CONFIG")
+	originalSecrets := os.Getenv("MCPROXY_SECRETS")
+
+	os.Setenv("HOME", tmpDir)
+	os.Setenv("MCPROXY_CONFIG", projectConfigPath)
+	os.Setenv("MCPROXY_SECRETS", projectSecretsPath)
+
+	defer func() {
+		os.Setenv("HOME", originalHome)
+		os.Setenv("MCPROXY_CONFIG", originalConfig)
+		os.Setenv("MCPROXY_SECRETS", originalSecrets)
+	}()
+
+	// Test hierarchical loading with JSONC files
+	result, err := LoadConfigHierarchical()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Check that both configs were loaded
+	if len(result.Config.Endpoints) != 2 {
+		t.Errorf("Expected 2 merged endpoints, got %d", len(result.Config.Endpoints))
+	}
+
+	// Check that both secrets were loaded
+	if len(result.Secrets) != 2 {
+		t.Errorf("Expected 2 merged secrets, got %d", len(result.Secrets))
+	}
+
+	// Check global endpoint
+	if result.Config.Endpoints["global"].UpstreamURL != "https://global.com" {
+		t.Error("Global endpoint not loaded correctly")
+	}
+
+	// Check project endpoint
+	if result.Config.Endpoints["project"].UpstreamURL != "https://project.com" {
+		t.Error("Project endpoint not loaded correctly")
+	}
+
+	// Check global secret
+	if result.Secrets["global_token"] != "global-secret" {
+		t.Error("Global secret not loaded correctly")
+	}
+
+	// Check project secret
+	if result.Secrets["project_token"] != "project-secret" {
+		t.Error("Project secret not loaded correctly")
+	}
+}
+
+func TestUnmarshalWithAutoDetection_InvalidJSONC(t *testing.T) {
+	// Test invalid JSONC (unterminated multi-line comment)
+	invalidJSONC := `{
+		"endpoints": {
+			"test": {
+				"upstreamUrl": "https://example.com"
+			}
+		}
+		/* Unterminated comment
+	}`
+
+	var config Config
+	err := UnmarshalWithAutoDetection([]byte(invalidJSONC), &config, "config.jsonc")
+	if err == nil {
+		t.Error("Expected error for invalid JSONC, got nil")
+	}
+}
+
+func TestUnmarshalWithAutoDetection_BackwardCompatibility(t *testing.T) {
+	// Test that unknown extensions default to JSON parser
+	jsonContent := `{
+		"endpoints": {
+			"test": {
+				"upstreamUrl": "https://example.com"
+			}
+		}
+	}`
+
+	var config Config
+	err := UnmarshalWithAutoDetection([]byte(jsonContent), &config, "config.txt")
+	if err != nil {
+		t.Fatalf("Expected no error for unknown extension, got %v", err)
+	}
+
+	if len(config.Endpoints) != 1 {
+		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
+	}
+}
