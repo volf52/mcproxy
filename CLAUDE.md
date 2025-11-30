@@ -30,8 +30,10 @@ gofmt -w .                       # Format code (or use goimports)
 ## Configuration
 
 The service requires two JSON files:
-- **Config file**: `./config.json` (override with `MCPROXY_CONFIG` env var)
-- **Secrets file**: `~/secrets.json` (override with `MCPROXY_SECRETS` env var)
+- **Config file**: `~/.config/mcproxy/config.jsonc` (XDG-compliant, override with `MCPROXY_CONFIG` env var)
+- **Secrets file**: `~/secrets.jsonc` (override with `MCPROXY_SECRETS` env var)
+
+Both files support JSONC format (JSON with comments) and fall back to .json extensions.
 
 Default listen address: `:8099`
 

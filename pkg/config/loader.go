@@ -67,11 +67,24 @@ func getGlobalSecretsPath() string {
 }
 
 // getProjectConfigPath returns the path to the project config file
-// Checks for .jsonc first if no environment variable is set
+// Checks XDG config directory first, then project directory, with .jsonc preference
 func getProjectConfigPath() string {
 	configPath := os.Getenv("MCPROXY_CONFIG")
 	if configPath == "" {
-		// Check for JSONC file first
+		// Check ~/.config/mcproxy/ first (XDG-compliant)
+		if userConfigDir, err := os.UserConfigDir(); err == nil {
+			mcproxyConfigDir := filepath.Join(userConfigDir, "mcproxy")
+			jsoncPath := filepath.Join(mcproxyConfigDir, "config.jsonc")
+			if fileExists(jsoncPath) {
+				return jsoncPath
+			}
+			jsonPath := filepath.Join(mcproxyConfigDir, "config.json")
+			if fileExists(jsonPath) {
+				return jsonPath
+			}
+		}
+
+		// Fall back to project directory for backward compatibility
 		if fileExists("./config.jsonc") {
 			return "./config.jsonc"
 		}

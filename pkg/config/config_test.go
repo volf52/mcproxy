@@ -346,7 +346,7 @@ func TestGetGlobalSecretsPath(t *testing.T) {
 }
 
 func TestGetProjectConfigPath(t *testing.T) {
-	// Test default path
+	// Test default path when no XDG config files exist
 	oldConfig := os.Getenv("MCPROXY_CONFIG")
 	defer os.Setenv("MCPROXY_CONFIG", oldConfig)
 
@@ -363,6 +363,146 @@ func TestGetProjectConfigPath(t *testing.T) {
 	expected = "/custom/config.json"
 	if path != expected {
 		t.Errorf("Expected project config path '%s', got '%s'", expected, path)
+	}
+}
+
+func TestGetProjectConfigPath_XDGCompliant(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Save original environment variables
+	originalHome := os.Getenv("HOME")
+	originalUserConfigDir := os.Getenv("XDG_CONFIG_HOME")
+	originalConfig := os.Getenv("MCPROXY_CONFIG")
+
+	defer func() {
+		os.Setenv("HOME", originalHome)
+		os.Setenv("XDG_CONFIG_HOME", originalUserConfigDir)
+		os.Setenv("MCPROXY_CONFIG", originalConfig)
+	}()
+
+	// Test XDG config directory priority
+	os.Setenv("XDG_CONFIG_HOME", tmpDir)
+	os.Unsetenv("MCPROXY_CONFIG")
+
+	// Create XDG mcproxy directory
+	mcproxyConfigDir := filepath.Join(tmpDir, "mcproxy")
+	err := os.MkdirAll(mcproxyConfigDir, 0o755)
+	if err != nil {
+		t.Fatalf("Failed to create XDG config directory: %v", err)
+	}
+
+	// Test 1: XDG config.jsonc is preferred
+	xdgJSONCPath := filepath.Join(mcproxyConfigDir, "config.jsonc")
+	os.WriteFile(xdgJSONCPath, []byte("{}"), 0o644)
+
+	path := getProjectConfigPath()
+	if path != xdgJSONCPath {
+		t.Errorf("Expected XDG JSONC path '%s', got '%s'", xdgJSONCPath, path)
+	}
+
+	// Test 2: XDG config.json fallback
+	os.Remove(xdgJSONCPath)
+	xdgJSONPath := filepath.Join(mcproxyConfigDir, "config.json")
+	os.WriteFile(xdgJSONPath, []byte("{}"), 0o644)
+
+	path = getProjectConfigPath()
+	if path != xdgJSONPath {
+		t.Errorf("Expected XDG JSON path '%s', got '%s'", xdgJSONPath, path)
+	}
+
+	// Test 3: Fallback to project directory config.jsonc
+	os.Remove(xdgJSONPath)
+	// Change to the temp directory to test project config
+	originalWd, _ := os.Getwd()
+	tmpTestDir := t.TempDir()
+	os.Chdir(tmpTestDir)
+	defer os.Chdir(originalWd)
+
+	// Create project JSONC file
+	projectJSONCPath := filepath.Join(tmpTestDir, "config.jsonc")
+	os.WriteFile(projectJSONCPath, []byte("{}"), 0o644)
+
+	path = getProjectConfigPath()
+	expected := "./config.jsonc"
+	if path != expected {
+		t.Errorf("Expected project JSONC path '%s', got '%s'", expected, path)
+	}
+
+	// Test 4: Fallback to project directory config.json
+	os.Remove(projectJSONCPath)
+	projectJSONPath := filepath.Join(tmpTestDir, "config.json")
+	os.WriteFile(projectJSONPath, []byte("{}"), 0o644)
+
+	path = getProjectConfigPath()
+	expected = "./config.json"
+	if path != expected {
+		t.Errorf("Expected project JSON path '%s', got '%s'", expected, path)
+	}
+}
+
+func TestGetProjectConfigPath_EnvironmentOverride(t *testing.T) {
+	// Test that environment variable overrides XDG paths
+	tmpDir := t.TempDir()
+
+	originalConfig := os.Getenv("MCPROXY_CONFIG")
+	originalUserConfigDir := os.Getenv("XDG_CONFIG_HOME")
+
+	defer func() {
+		os.Setenv("MCPROXY_CONFIG", originalConfig)
+		os.Setenv("XDG_CONFIG_HOME", originalUserConfigDir)
+	}()
+
+	// Set up XDG config directory with files
+	os.Setenv("XDG_CONFIG_HOME", tmpDir)
+	mcproxyConfigDir := filepath.Join(tmpDir, "mcproxy")
+	os.MkdirAll(mcproxyConfigDir, 0o755)
+
+	xdgJSONCPath := filepath.Join(mcproxyConfigDir, "config.jsonc")
+	os.WriteFile(xdgJSONCPath, []byte("{}"), 0o644)
+
+	// Environment variable should override everything
+	customPath := filepath.Join(tmpDir, "custom.jsonc")
+	os.WriteFile(customPath, []byte("{}"), 0o644)
+	os.Setenv("MCPROXY_CONFIG", customPath)
+
+	path := getProjectConfigPath()
+	if path != customPath {
+		t.Errorf("Expected environment override path '%s', got '%s'", customPath, path)
+	}
+}
+
+func TestGetProjectConfigPath_HomeDirectoryFallback(t *testing.T) {
+	// Test XDG behavior when XDG_CONFIG_HOME is not set (should use HOME/.config)
+	tmpDir := t.TempDir()
+
+	originalHome := os.Getenv("HOME")
+	originalUserConfigDir := os.Getenv("XDG_CONFIG_HOME")
+	originalConfig := os.Getenv("MCPROXY_CONFIG")
+
+	defer func() {
+		os.Setenv("HOME", originalHome)
+		os.Setenv("XDG_CONFIG_HOME", originalUserConfigDir)
+		os.Setenv("MCPROXY_CONFIG", originalConfig)
+	}()
+
+	// Set HOME but not XDG_CONFIG_HOME
+	os.Setenv("HOME", tmpDir)
+	os.Unsetenv("XDG_CONFIG_HOME")
+	os.Unsetenv("MCPROXY_CONFIG")
+
+	// Create HOME/.config/mcproxy directory
+	configDir := filepath.Join(tmpDir, ".config", "mcproxy")
+	err := os.MkdirAll(configDir, 0o755)
+	if err != nil {
+		t.Fatalf("Failed to create HOME config directory: %v", err)
+	}
+
+	homeJSONCPath := filepath.Join(configDir, "config.jsonc")
+	os.WriteFile(homeJSONCPath, []byte("{}"), 0o644)
+
+	path := getProjectConfigPath()
+	if path != homeJSONCPath {
+		t.Errorf("Expected HOME XDG JSONC path '%s', got '%s'", homeJSONCPath, path)
 	}
 }
 

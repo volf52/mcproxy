@@ -5,7 +5,7 @@ A lightweight Go service that publishes dynamic HTTP POST endpoints and proxies 
 ## Quick Start
 - Prerequisites: Go 1.21+.
 - Defaults (auto-detection prioritizes JSONC):
-  - Config file: `./config.jsonc` → `./config.json` (override with env `MCPROXY_CONFIG`).
+  - Config file: `~/.config/mcproxy/config.jsonc` → `~/.config/mcproxy/config.json` → `./config.jsonc` → `./config.json` (override with env `MCPROXY_CONFIG`).
   - Secrets file: `~/secrets.jsonc` → `~/secrets.json` (override with env `MCPROXY_SECRETS`).
   - Listen address: `:8099`.
 - Build and run:
@@ -24,7 +24,7 @@ The service automatically detects and prioritizes JSONC files:
 
 - **Global config**: `~/config.jsonc` (preferred) → `~/config.json` (fallback)
 - **Global secrets**: `~/secrets.jsonc` (preferred) → `~/secrets.json` (fallback)
-- **Project config**: `./config.jsonc` (preferred) → `./config.json` (fallback)
+- **Project config**: `~/.config/mcproxy/config.jsonc` → `~/.config/mcproxy/config.json` → `./config.jsonc` → `./config.json` (fallback)
 - **Project secrets**: `./secrets.jsonc` (preferred) → `./secrets.json` (fallback)
 
 JSONC supports both single-line (`//`) and multi-line (`/* */`) comments, making configuration files self-documenting.
@@ -70,9 +70,9 @@ go run cmd/generate-schema/main.go
 }
 ```
 
-### Config (`./config.jsonc` by default)
+### Config (`~/.config/mcproxy/config.jsonc` by default)
 
-**JSONC format (recommended) - `./config.jsonc`:**
+**JSONC format (recommended) - `~/.config/mcproxy/config.jsonc`:**
 ```jsonc
 {
   // Use JSON Schema for validation and IDE autocomplete
@@ -103,7 +103,7 @@ go run cmd/generate-schema/main.go
 }
 ```
 
-**JSON format - `./config.json`:**
+**JSON format - `~/.config/mcproxy/config.json` or `./config.json` for backward compatibility:**
 ```json
 {
   "$schema": "./config.schema.json",
