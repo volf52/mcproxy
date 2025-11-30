@@ -14,7 +14,7 @@ func TestLoadConfig(t *testing.T) {
 	configContent := map[string]interface{}{
 		"endpoints": map[string]interface{}{
 			"test": map[string]interface{}{
-				"upstreamUrl": "https://example.com",
+				"url": "https://example.com",
 				"headers": map[string]interface{}{
 					"Authorization": "Bearer {{token}}",
 				},
@@ -24,7 +24,7 @@ func TestLoadConfig(t *testing.T) {
 	}
 
 	data, _ := json.Marshal(configContent)
-	os.WriteFile(configPath, data, 0644)
+	os.WriteFile(configPath, data, 0o644)
 
 	// Set environment variable
 	oldConfig := os.Getenv("MCPROXY_CONFIG")
@@ -40,8 +40,8 @@ func TestLoadConfig(t *testing.T) {
 		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
 	}
 
-	if config.Endpoints["test"].UpstreamURL != "https://example.com" {
-		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].UpstreamURL)
+	if config.Endpoints["test"].Url != "https://example.com" {
+		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].Url)
 	}
 
 	if config.LogFile != "/tmp/test.log" {
@@ -63,7 +63,7 @@ func TestLoadConfigMissingFile(t *testing.T) {
 func TestLoadConfigInvalidJSON(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")
-	os.WriteFile(configPath, []byte("invalid json"), 0644)
+	os.WriteFile(configPath, []byte("invalid json"), 0o644)
 
 	oldConfig := os.Getenv("MCPROXY_CONFIG")
 	os.Setenv("MCPROXY_CONFIG", configPath)
@@ -83,7 +83,7 @@ func TestLoadConfigEmptyEndpoints(t *testing.T) {
 	}
 
 	data, _ := json.Marshal(configContent)
-	os.WriteFile(configPath, data, 0644)
+	os.WriteFile(configPath, data, 0o644)
 
 	oldConfig := os.Getenv("MCPROXY_CONFIG")
 	os.Setenv("MCPROXY_CONFIG", configPath)
@@ -104,7 +104,7 @@ func TestLoadSecrets(t *testing.T) {
 	}
 
 	data, _ := json.Marshal(secretsContent)
-	os.WriteFile(secretsPath, data, 0644)
+	os.WriteFile(secretsPath, data, 0o644)
 
 	oldSecrets := os.Getenv("MCPROXY_SECRETS")
 	os.Setenv("MCPROXY_SECRETS", secretsPath)
@@ -142,7 +142,7 @@ func TestLoadSecretsMissingFile(t *testing.T) {
 func TestLoadSecretsInvalidJSON(t *testing.T) {
 	tmpDir := t.TempDir()
 	secretsPath := filepath.Join(tmpDir, "secrets.json")
-	os.WriteFile(secretsPath, []byte("invalid json"), 0644)
+	os.WriteFile(secretsPath, []byte("invalid json"), 0o644)
 
 	oldSecrets := os.Getenv("MCPROXY_SECRETS")
 	os.Setenv("MCPROXY_SECRETS", secretsPath)
@@ -256,20 +256,20 @@ func TestProcessSecretTemplates(t *testing.T) {
 	config := &Config{
 		Endpoints: map[string]Endpoint{
 			"valid": {
-				UpstreamURL: "https://api.example.com",
+				Url: "https://api.example.com",
 				Headers: map[string]string{
 					"Authorization": "Bearer {{api_token}}",
 					"Content-Type":  "application/json",
 				},
 			},
 			"missing": {
-				UpstreamURL: "https://api.example.com",
+				Url: "https://api.example.com",
 				Headers: map[string]string{
 					"Authorization": "Bearer {{missing_token}}",
 				},
 			},
 			"mixed": {
-				UpstreamURL: "https://api.example.com",
+				Url: "https://api.example.com",
 				Headers: map[string]string{
 					"Good": "Bearer {{api_token}}",
 					"Bad":  "Key {{missing_key}}",
@@ -392,7 +392,7 @@ func TestFileExists(t *testing.T) {
 
 	// Test existing file
 	testFile := filepath.Join(tmpDir, "test.json")
-	os.WriteFile(testFile, []byte("{}"), 0644)
+	os.WriteFile(testFile, []byte("{}"), 0o644)
 	if !fileExists(testFile) {
 		t.Error("Expected file to exist")
 	}
@@ -421,12 +421,12 @@ func TestLoadConfigFromFile(t *testing.T) {
 	configContent := map[string]interface{}{
 		"endpoints": map[string]interface{}{
 			"test": map[string]interface{}{
-				"upstreamUrl": "https://example.com",
+				"url": "https://example.com",
 			},
 		},
 	}
 	data, _ := json.Marshal(configContent)
-	os.WriteFile(configPath, data, 0644)
+	os.WriteFile(configPath, data, 0o644)
 
 	config, err := loadConfigFromFile(configPath)
 	if err != nil {
@@ -458,7 +458,7 @@ func TestLoadSecretsFromFile(t *testing.T) {
 		"token": "secret123",
 	}
 	data, _ := json.Marshal(secretsContent)
-	os.WriteFile(secretsPath, data, 0644)
+	os.WriteFile(secretsPath, data, 0o644)
 
 	secrets, err := loadSecretsFromFile(secretsPath)
 	if err != nil {
@@ -485,12 +485,12 @@ func TestMergeConfigs(t *testing.T) {
 	globalConfig := &Config{
 		Endpoints: map[string]Endpoint{
 			"global-only": {
-				UpstreamURL: "https://global.com",
-				Headers:     map[string]string{"Global": "true"},
+				Url:     "https://global.com",
+				Headers: map[string]string{"Global": "true"},
 			},
 			"shared": {
-				UpstreamURL: "https://global-shared.com",
-				Headers:     map[string]string{"Source": "global"},
+				Url:     "https://global-shared.com",
+				Headers: map[string]string{"Source": "global"},
 			},
 		},
 		LogFile: "/var/log/global.log",
@@ -499,12 +499,12 @@ func TestMergeConfigs(t *testing.T) {
 	projectConfig := &Config{
 		Endpoints: map[string]Endpoint{
 			"project-only": {
-				UpstreamURL: "https://project.com",
-				Headers:     map[string]string{"Project": "true"},
+				Url:     "https://project.com",
+				Headers: map[string]string{"Project": "true"},
 			},
 			"shared": {
-				UpstreamURL: "https://project-shared.com",
-				Headers:     map[string]string{"Source": "project"},
+				Url:     "https://project-shared.com",
+				Headers: map[string]string{"Source": "project"},
 			},
 		},
 		LogFile: "/var/log/project.log",
@@ -518,17 +518,17 @@ func TestMergeConfigs(t *testing.T) {
 	}
 
 	// Check global-only endpoint
-	if merged.Endpoints["global-only"].UpstreamURL != "https://global.com" {
+	if merged.Endpoints["global-only"].Url != "https://global.com" {
 		t.Error("Global-only endpoint not preserved correctly")
 	}
 
 	// Check project-only endpoint
-	if merged.Endpoints["project-only"].UpstreamURL != "https://project.com" {
+	if merged.Endpoints["project-only"].Url != "https://project.com" {
 		t.Error("Project-only endpoint not added correctly")
 	}
 
 	// Check that project overrides global for shared endpoint
-	if merged.Endpoints["shared"].UpstreamURL != "https://project-shared.com" {
+	if merged.Endpoints["shared"].Url != "https://project-shared.com" {
 		t.Error("Project config should override global config for shared endpoint")
 	}
 	if merged.Endpoints["shared"].Headers["Source"] != "project" {
@@ -586,30 +586,30 @@ func TestLoadConfigHierarchical(t *testing.T) {
 	globalConfigContent := map[string]interface{}{
 		"endpoints": map[string]interface{}{
 			"global": map[string]interface{}{
-				"upstreamUrl": "https://global.com",
+				"url": "https://global.com",
 			},
 		},
 	}
 	data, _ := json.Marshal(globalConfigContent)
-	os.WriteFile(globalConfigPath, data, 0644)
+	os.WriteFile(globalConfigPath, data, 0o644)
 
 	globalSecretsContent := map[string]string{
 		"global_token": "global-secret",
 	}
 	data, _ = json.Marshal(globalSecretsContent)
-	os.WriteFile(globalSecretsPath, data, 0644)
+	os.WriteFile(globalSecretsPath, data, 0o644)
 
 	// Set up project config
 	projectConfigPath := filepath.Join(tmpDir, "project_config.json")
 	projectConfigContent := map[string]interface{}{
 		"endpoints": map[string]interface{}{
 			"project": map[string]interface{}{
-				"upstreamUrl": "https://project.com",
+				"url": "https://project.com",
 			},
 		},
 	}
 	data, _ = json.Marshal(projectConfigContent)
-	os.WriteFile(projectConfigPath, data, 0644)
+	os.WriteFile(projectConfigPath, data, 0o644)
 
 	// Set up project secrets
 	projectSecretsPath := filepath.Join(tmpDir, "project_secrets.json")
@@ -617,7 +617,7 @@ func TestLoadConfigHierarchical(t *testing.T) {
 		"project_token": "project-secret",
 	}
 	data, _ = json.Marshal(projectSecretsContent)
-	os.WriteFile(projectSecretsPath, data, 0644)
+	os.WriteFile(projectSecretsPath, data, 0o644)
 
 	// Mock environment
 	originalHome := os.Getenv("HOME")
@@ -651,12 +651,12 @@ func TestLoadConfigHierarchical(t *testing.T) {
 	}
 
 	// Check global endpoint
-	if result.Config.Endpoints["global"].UpstreamURL != "https://global.com" {
+	if result.Config.Endpoints["global"].Url != "https://global.com" {
 		t.Error("Global endpoint not loaded correctly")
 	}
 
 	// Check project endpoint
-	if result.Config.Endpoints["project"].UpstreamURL != "https://project.com" {
+	if result.Config.Endpoints["project"].Url != "https://project.com" {
 		t.Error("Project endpoint not loaded correctly")
 	}
 
@@ -728,7 +728,7 @@ func TestValidateMergedConfig(t *testing.T) {
 			config: &Config{
 				Endpoints: map[string]Endpoint{
 					"test": {
-						UpstreamURL: "https://example.com",
+						Url: "https://example.com",
 					},
 				},
 			},
@@ -739,7 +739,7 @@ func TestValidateMergedConfig(t *testing.T) {
 			config: &Config{
 				Endpoints: map[string]Endpoint{
 					"": {
-						UpstreamURL: "https://example.com",
+						Url: "https://example.com",
 					},
 				},
 			},
@@ -750,7 +750,7 @@ func TestValidateMergedConfig(t *testing.T) {
 			config: &Config{
 				Endpoints: map[string]Endpoint{
 					"test": {
-						UpstreamURL: "",
+						Url: "",
 					},
 				},
 			},
@@ -779,19 +779,19 @@ func TestLoadConfigWithDefaults(t *testing.T) {
 	configContent := map[string]interface{}{
 		"endpoints": map[string]interface{}{
 			"test": map[string]interface{}{
-				"upstreamUrl": "https://example.com",
+				"url": "https://example.com",
 			},
 		},
 	}
 	data, _ := json.Marshal(configContent)
-	os.WriteFile(configPath, data, 0644)
+	os.WriteFile(configPath, data, 0o644)
 
 	secretsPath := filepath.Join(tmpDir, "secrets.json")
 	secretsContent := map[string]string{
 		"token": "secret123",
 	}
 	data, _ = json.Marshal(secretsContent)
-	os.WriteFile(secretsPath, data, 0644)
+	os.WriteFile(secretsPath, data, 0o644)
 
 	// Mock HOME to prevent loading actual user's global secrets
 	originalHome := os.Getenv("HOME")
@@ -856,7 +856,7 @@ func TestUnmarshalWithAutoDetection_JSON(t *testing.T) {
 	jsonContent := `{
 		"endpoints": {
 			"test": {
-				"upstreamUrl": "https://example.com",
+				"url": "https://example.com",
 				"headers": {
 					"Authorization": "Bearer token123"
 				}
@@ -875,8 +875,8 @@ func TestUnmarshalWithAutoDetection_JSON(t *testing.T) {
 		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
 	}
 
-	if config.Endpoints["test"].UpstreamURL != "https://example.com" {
-		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].UpstreamURL)
+	if config.Endpoints["test"].Url != "https://example.com" {
+		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].Url)
 	}
 
 	if config.LogFile != "/tmp/test.log" {
@@ -890,7 +890,7 @@ func TestUnmarshalWithAutoDetection_JSONC(t *testing.T) {
 		// This is a single-line comment
 		"endpoints": {
 			"test": {
-				"upstreamUrl": "https://example.com", // inline comment
+				"url": "https://example.com", // inline comment
 				"headers": {
 					"Authorization": "Bearer token123"
 				}
@@ -909,8 +909,8 @@ func TestUnmarshalWithAutoDetection_JSONC(t *testing.T) {
 		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
 	}
 
-	if config.Endpoints["test"].UpstreamURL != "https://example.com" {
-		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].UpstreamURL)
+	if config.Endpoints["test"].Url != "https://example.com" {
+		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].Url)
 	}
 
 	if config.LogFile != "/tmp/test.log" {
@@ -925,7 +925,7 @@ func TestUnmarshalWithAutoDetection_JSONC_MultiLineComments(t *testing.T) {
 		   that spans multiple lines */
 		"endpoints": {
 			"test": {
-				"upstreamUrl": "https://example.com" /* inline multi-line comment */,
+				"url": "https://example.com" /* inline multi-line comment */,
 				"headers": {
 					"Authorization": "Bearer token123"
 				}
@@ -944,8 +944,8 @@ func TestUnmarshalWithAutoDetection_JSONC_MultiLineComments(t *testing.T) {
 		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
 	}
 
-	if config.Endpoints["test"].UpstreamURL != "https://example.com" {
-		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].UpstreamURL)
+	if config.Endpoints["test"].Url != "https://example.com" {
+		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].Url)
 	}
 }
 
@@ -955,7 +955,7 @@ func TestUnmarshalWithAutoDetection_JSONC_MixedComments(t *testing.T) {
 		// Configuration for mcproxy service
 		"endpoints": {
 			"api": {
-				"upstreamUrl": "https://api.example.com",
+				"url": "https://api.example.com",
 				"headers": {
 					/* Authentication header required for all requests */
 					"Authorization": "Bearer {{api_token}}",
@@ -963,7 +963,7 @@ func TestUnmarshalWithAutoDetection_JSONC_MixedComments(t *testing.T) {
 				}
 			},
 			"webhook": {
-				"upstreamUrl": "https://webhook.example.com",
+				"url": "https://webhook.example.com",
 				// No custom headers needed for webhook
 				"headers": {}
 			}
@@ -982,8 +982,8 @@ func TestUnmarshalWithAutoDetection_JSONC_MixedComments(t *testing.T) {
 	}
 
 	// Check API endpoint
-	if config.Endpoints["api"].UpstreamURL != "https://api.example.com" {
-		t.Errorf("Expected API upstream URL 'https://api.example.com', got '%s'", config.Endpoints["api"].UpstreamURL)
+	if config.Endpoints["api"].Url != "https://api.example.com" {
+		t.Errorf("Expected API upstream URL 'https://api.example.com', got '%s'", config.Endpoints["api"].Url)
 	}
 
 	if config.Endpoints["api"].Headers["Authorization"] != "Bearer {{api_token}}" {
@@ -991,8 +991,8 @@ func TestUnmarshalWithAutoDetection_JSONC_MixedComments(t *testing.T) {
 	}
 
 	// Check webhook endpoint
-	if config.Endpoints["webhook"].UpstreamURL != "https://webhook.example.com" {
-		t.Errorf("Expected webhook upstream URL 'https://webhook.example.com', got '%s'", config.Endpoints["webhook"].UpstreamURL)
+	if config.Endpoints["webhook"].Url != "https://webhook.example.com" {
+		t.Errorf("Expected webhook upstream URL 'https://webhook.example.com', got '%s'", config.Endpoints["webhook"].Url)
 	}
 
 	if config.LogFile != "/var/log/mcproxy.log" {
@@ -1009,7 +1009,7 @@ func TestLoadConfig_JSONC(t *testing.T) {
 		// API endpoint configuration
 		"endpoints": {
 			"test": {
-				"upstreamUrl": "https://example.com", // API server URL
+				"url": "https://example.com", // API server URL
 				"headers": {
 					"Authorization": "Bearer {{token}}" // auth token
 				}
@@ -1018,7 +1018,7 @@ func TestLoadConfig_JSONC(t *testing.T) {
 		"logFile": "/tmp/test.log" // log file location
 	}`
 
-	os.WriteFile(configPath, []byte(jsoncContent), 0644)
+	os.WriteFile(configPath, []byte(jsoncContent), 0o644)
 
 	oldConfig := os.Getenv("MCPROXY_CONFIG")
 	os.Setenv("MCPROXY_CONFIG", configPath)
@@ -1033,8 +1033,8 @@ func TestLoadConfig_JSONC(t *testing.T) {
 		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
 	}
 
-	if config.Endpoints["test"].UpstreamURL != "https://example.com" {
-		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].UpstreamURL)
+	if config.Endpoints["test"].Url != "https://example.com" {
+		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].Url)
 	}
 
 	if config.LogFile != "/tmp/test.log" {
@@ -1055,7 +1055,7 @@ func TestLoadSecrets_JSONC(t *testing.T) {
 		"webhook_secret": "webhook789"   // webhook verification secret
 	}`
 
-	os.WriteFile(secretsPath, []byte(jsoncContent), 0644)
+	os.WriteFile(secretsPath, []byte(jsoncContent), 0o644)
 
 	oldSecrets := os.Getenv("MCPROXY_SECRETS")
 	os.Setenv("MCPROXY_SECRETS", secretsPath)
@@ -1092,11 +1092,11 @@ func TestLoadConfigHierarchical_JSONC(t *testing.T) {
 		// Global configuration
 		"endpoints": {
 			"global": {
-				"upstreamUrl": "https://global.com"
+				"url": "https://global.com"
 			}
 		}
 	}`
-	os.WriteFile(globalConfigPath, []byte(globalConfigContent), 0644)
+	os.WriteFile(globalConfigPath, []byte(globalConfigContent), 0o644)
 
 	// Set up project JSONC config file
 	projectConfigPath := filepath.Join(tmpDir, "project_config.jsonc")
@@ -1104,11 +1104,11 @@ func TestLoadConfigHierarchical_JSONC(t *testing.T) {
 		// Project-specific configuration
 		"endpoints": {
 			"project": {
-				"upstreamUrl": "https://project.com"
+				"url": "https://project.com"
 			}
 		}
 	}`
-	os.WriteFile(projectConfigPath, []byte(projectConfigContent), 0644)
+	os.WriteFile(projectConfigPath, []byte(projectConfigContent), 0o644)
 
 	// Set up global JSONC secrets file
 	globalSecretsPath := filepath.Join(tmpDir, "secrets.jsonc")
@@ -1116,7 +1116,7 @@ func TestLoadConfigHierarchical_JSONC(t *testing.T) {
 		// Global secrets
 		"global_token": "global-secret"
 	}`
-	os.WriteFile(globalSecretsPath, []byte(globalSecretsContent), 0644)
+	os.WriteFile(globalSecretsPath, []byte(globalSecretsContent), 0o644)
 
 	// Set up project JSONC secrets file
 	projectSecretsPath := filepath.Join(tmpDir, "project_secrets.jsonc")
@@ -1124,7 +1124,7 @@ func TestLoadConfigHierarchical_JSONC(t *testing.T) {
 		// Project secrets
 		"project_token": "project-secret"
 	}`
-	os.WriteFile(projectSecretsPath, []byte(projectSecretsContent), 0644)
+	os.WriteFile(projectSecretsPath, []byte(projectSecretsContent), 0o644)
 
 	// Mock environment
 	originalHome := os.Getenv("HOME")
@@ -1158,12 +1158,12 @@ func TestLoadConfigHierarchical_JSONC(t *testing.T) {
 	}
 
 	// Check global endpoint
-	if result.Config.Endpoints["global"].UpstreamURL != "https://global.com" {
+	if result.Config.Endpoints["global"].Url != "https://global.com" {
 		t.Error("Global endpoint not loaded correctly")
 	}
 
 	// Check project endpoint
-	if result.Config.Endpoints["project"].UpstreamURL != "https://project.com" {
+	if result.Config.Endpoints["project"].Url != "https://project.com" {
 		t.Error("Project endpoint not loaded correctly")
 	}
 
@@ -1183,7 +1183,7 @@ func TestUnmarshalWithAutoDetection_InvalidJSONC(t *testing.T) {
 	invalidJSONC := `{
 		"endpoints": {
 			"test": {
-				"upstreamUrl": "https://example.com"
+				"url": "https://example.com"
 			}
 		}
 		/* Unterminated comment
@@ -1201,7 +1201,7 @@ func TestUnmarshalWithAutoDetection_BackwardCompatibility(t *testing.T) {
 	jsonContent := `{
 		"endpoints": {
 			"test": {
-				"upstreamUrl": "https://example.com"
+				"url": "https://example.com"
 			}
 		}
 	}`

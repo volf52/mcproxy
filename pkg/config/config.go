@@ -17,8 +17,8 @@ type Config struct {
 
 // Endpoint represents a single proxy endpoint configuration
 type Endpoint struct {
-	UpstreamURL string            `json:"upstreamUrl"`
-	Headers     map[string]string `json:"headers,omitempty"`
+	Url     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 // Secrets represents the secrets structure for template substitution
@@ -95,7 +95,7 @@ func validateEndpoints(endpoints map[string]Endpoint) error {
 		if name == "" {
 			return fmt.Errorf("endpoint name cannot be empty")
 		}
-		if endpoint.UpstreamURL == "" {
+		if endpoint.Url == "" {
 			return fmt.Errorf("upstream URL cannot be empty for endpoint '%s'", name)
 		}
 	}

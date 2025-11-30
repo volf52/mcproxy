@@ -7,8 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/marcozac/go-jsonc"
 	"mcproxy/pkg/logging"
+
+	"github.com/marcozac/go-jsonc"
 )
 
 // ConfigFileInfo holds information about loaded configuration files
@@ -298,7 +299,7 @@ func validateMergedConfig(config *Config) error {
 		if name == "" {
 			return fmt.Errorf("endpoint name cannot be empty")
 		}
-		if endpoint.UpstreamURL == "" {
+		if endpoint.Url == "" {
 			return fmt.Errorf("upstream URL cannot be empty for endpoint '%s'", name)
 		}
 	}

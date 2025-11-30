@@ -35,7 +35,7 @@ func (s *Server) Start() error {
 		handler := s.createProxyHandler(name, endpoint)
 		pattern := fmt.Sprintf("/%s", name)
 		mux.HandleFunc(pattern, handler)
-		logging.LogEndpointRegistration(name, endpoint.UpstreamURL, endpoint.Headers)
+		logging.LogEndpointRegistration(name, endpoint.Url, endpoint.Headers)
 	}
 
 	// Add a root handler for basic info
@@ -75,7 +75,7 @@ func (s *Server) createProxyHandler(name string, endpoint config.Endpoint) http.
 		resp, err := s.httpClient.Do(upstreamReq)
 		if err != nil {
 			logging.Printf("Error forwarding request for endpoint '%s': %v", name, err)
-			logging.Debugf("Request forwarding error: endpoint='%s', upstream='%s', error=%v", name, endpoint.UpstreamURL, err)
+			logging.Debugf("Request forwarding error: endpoint='%s', upstream='%s', error=%v", name, endpoint.Url, err)
 			http.Error(w, "Bad gateway", http.StatusBadGateway)
 			return
 		}
@@ -108,7 +108,7 @@ func (s *Server) createUpstreamRequest(r *http.Request, endpoint config.Endpoint
 		return nil, fmt.Errorf("failed to read request body: %w", err)
 	}
 
-	upstreamReq, err := http.NewRequest(http.MethodPost, endpoint.UpstreamURL, strings.NewReader(string(body)))
+	upstreamReq, err := http.NewRequest(http.MethodPost, endpoint.Url, strings.NewReader(string(body)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create upstream request: %w", err)
 	}
