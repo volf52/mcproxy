@@ -4,14 +4,19 @@
   "description": "Configuration schema for mcproxy HTTP proxy service",
   "definitions": {
     "ConfigEndpoint": {
+      "title": "MCProxy Config",
+      "description": "Config for MCProxy",
+      "additionalProperties": false,
       "properties": {
         "headers": {
+          "description": "Custom headers to add to requests to the upstream server.",
           "additionalProperties": {
             "type": "string"
           },
           "type": "object"
         },
         "url": {
+          "description": "The upstream server url",
           "type": "string"
         }
       },
