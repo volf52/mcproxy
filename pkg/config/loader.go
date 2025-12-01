@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -208,18 +209,10 @@ func mergeSecrets(global, project Secrets) Secrets {
 	merged := make(Secrets)
 
 	// Copy global secrets first
-	if global != nil {
-		for key, value := range global {
-			merged[key] = value
-		}
-	}
+	maps.Copy(merged, global)
 
 	// Override with project secrets
-	if project != nil {
-		for key, value := range project {
-			merged[key] = value
-		}
-	}
+	maps.Copy(merged, project)
 
 	return merged
 }

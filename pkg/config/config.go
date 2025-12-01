@@ -17,8 +17,10 @@ type Config struct {
 
 // Endpoint represents a single proxy endpoint configuration
 type Endpoint struct {
-	Url     string            `json:"url"`
-	Headers map[string]string `json:"headers,omitempty"`
+	Url     string            `json:"url" description:"The upstream server url"`
+	Headers map[string]string `json:"headers,omitempty" description:"Custom headers to add to requests to the upstream server."`
+	_       struct{}          `additionalProperties:"false"`                            // Tags of unnamed field are applied to parent schema.
+	_       struct{}          `title:"MCProxy Config" description:"Config for MCProxy"` // Multiple unnamed fields can be used.
 }
 
 // Secrets represents the secrets structure for template substitution
