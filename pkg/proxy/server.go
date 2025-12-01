@@ -35,7 +35,7 @@ func (s *Server) Start() error {
 		handler := s.createProxyHandler(name, endpoint)
 		pattern := fmt.Sprintf("/mcp/%s", name)
 		mux.HandleFunc(pattern, handler)
-		logging.LogEndpointRegistration(name, endpoint.Url, endpoint.Headers)
+		logging.LogEndpointRegistration(name, endpoint.Url, "/mcp", endpoint.Headers)
 	}
 
 	// Add a root handler for basic info
@@ -123,11 +123,8 @@ func (s *Server) createUpstreamRequest(r *http.Request, endpoint config.Endpoint
 	// Add/override configured headers
 	for headerName, headerValue := range endpoint.Headers {
 		upstreamReq.Header.Set(headerName, headerValue)
-		// Log header setting in debug mode only (without exposing the actual value)
-		logging.Debugf("Setting header for upstream request: %s", headerName)
-		if logging.IsDebugMode() {
-			logging.Debugf("Header value: %s", headerValue)
-		}
+		// Log header setting without exposing actual values
+		logging.DebugfSanitized("Setting header for upstream request: %s", headerName)
 	}
 
 	// Set Content-Type if not present

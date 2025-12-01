@@ -33,9 +33,12 @@ func TestSecureLoggingInit(t *testing.T) {
 func TestSanitizeForLogging(t *testing.T) {
 	// Setup with non-debug mode
 	oldDebug := os.Getenv("MCPROXY_DEBUG")
+	oldLevel := os.Getenv("MCPROXY_DEBUG_LEVEL")
 	defer os.Setenv("MCPROXY_DEBUG", oldDebug)
+	defer os.Setenv("MCPROXY_DEBUG_LEVEL", oldLevel)
 
 	os.Setenv("MCPROXY_DEBUG", "false")
+	os.Setenv("MCPROXY_DEBUG_LEVEL", "sanitized")
 	secrets := map[string]string{
 		"api_key": "supersecret123",
 		"token":   "mytoken456",
@@ -92,9 +95,12 @@ func TestSanitizeForLogging(t *testing.T) {
 func TestSanitizeForLoggingDebugMode(t *testing.T) {
 	// Setup with debug mode
 	oldDebug := os.Getenv("MCPROXY_DEBUG")
+	oldLevel := os.Getenv("MCPROXY_DEBUG_LEVEL")
 	defer os.Setenv("MCPROXY_DEBUG", oldDebug)
+	defer os.Setenv("MCPROXY_DEBUG_LEVEL", oldLevel)
 
 	os.Setenv("MCPROXY_DEBUG", "true")
+	os.Setenv("MCPROXY_DEBUG_LEVEL", "unredacted")
 	secrets := map[string]string{
 		"api_key": "supersecret123",
 	}
@@ -112,9 +118,12 @@ func TestSanitizeForLoggingDebugMode(t *testing.T) {
 func TestSanitizeHeadersForLogging(t *testing.T) {
 	// Setup with non-debug mode
 	oldDebug := os.Getenv("MCPROXY_DEBUG")
+	oldLevel := os.Getenv("MCPROXY_DEBUG_LEVEL")
 	defer os.Setenv("MCPROXY_DEBUG", oldDebug)
+	defer os.Setenv("MCPROXY_DEBUG_LEVEL", oldLevel)
 
 	os.Setenv("MCPROXY_DEBUG", "false")
+	os.Setenv("MCPROXY_DEBUG_LEVEL", "sanitized")
 	secrets := map[string]string{
 		"api_key": "supersecret123",
 	}
@@ -425,7 +434,7 @@ func TestLogEndpointRegistration(t *testing.T) {
 			"Authorization": "Bearer {{api_key}}",
 			"Content-Type":  "application/json",
 		}
-		LogEndpointRegistration("test-endpoint", "https://example.com", headers)
+		LogEndpointRegistration("test-endpoint", "https://example.com", "/mcp", headers)
 	})
 
 	// Test in debug mode
@@ -442,7 +451,7 @@ func TestLogEndpointRegistration(t *testing.T) {
 			"Authorization": "Bearer {{api_key}}",
 			"Content-Type":  "application/json",
 		}
-		LogEndpointRegistration("test-endpoint", "https://example.com", headers)
+		LogEndpointRegistration("test-endpoint", "https://example.com", "/mcp", headers)
 	})
 }
 
