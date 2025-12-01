@@ -1,10 +1,10 @@
 ---
 id: task-00009
 title: Change default config file location to ~/.config/mcproxy/config.jsonc
-status: In Progress
+status: Done
 assignee: []
 created_date: '2025-11-28 16:49'
-updated_date: '2025-11-30 22:33'
+updated_date: '2025-12-01 00:38'
 labels: []
 dependencies: []
 priority: medium
@@ -19,18 +19,18 @@ Update the configuration loader to use ~/.config/mcproxy/config.jsonc as the def
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Default config path changes from ./config.json to ~/.config/mcproxy/config.jsonc
-- [ ] #2 Environment variable MCPROXY_CONFIG still overrides the default path
+- [x] #1 Default config path changes from ./config.json to ~/.config/mcproxy/config.jsonc
+- [x] #2 Environment variable MCPROXY_CONFIG still overrides the default path
 - [ ] #3 Create ~/.config/mcproxy directory if it doesn't exist with proper error handling
-- [ ] #4 Maintain backward compatibility - fallback to ./config.json if ~/.config/mcproxy/config.jsonc doesn't exist
-- [ ] #5 Update CLAUDE.md documentation to reflect new default path and JSONC support
+- [x] #4 Maintain backward compatibility - fallback to ./config.json if ~/.config/mcproxy/config.jsonc doesn't exist
+- [x] #5 Update CLAUDE.md documentation to reflect new default path and JSONC support
 - [ ] #6 Include proper error handling for permission issues when creating ~/.config/mcproxy directory
 
-- [ ] #7 Update README.md with new default configuration location and JSONC format support
-- [ ] #8 Add unit tests for new config loading logic, JSONC parsing, and fallback behavior
-- [ ] #9 Ensure secrets file path behavior remains consistent (still ~/secrets.json by default)
+- [x] #7 Update README.md with new default configuration location and JSONC format support
+- [x] #8 Add unit tests for new config loading logic, JSONC parsing, and fallback behavior
+- [x] #9 Ensure secrets file path behavior remains consistent (still ~/secrets.json by default)
 
-- [ ] #10 Validate that JSONC comments are properly parsed and ignored
+- [x] #10 Validate that JSONC comments are properly parsed and ignored
 <!-- AC:END -->
 
 ## Implementation Plan
