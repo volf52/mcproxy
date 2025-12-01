@@ -73,8 +73,6 @@ jobs:
 
           Triggered by manual workflow dispatch
 
-          🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
           Co-Authored-By: GitHub Actions <action@github.com>"
           git push
 
