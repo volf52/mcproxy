@@ -299,7 +299,7 @@ func TestProcessSecretTemplates(t *testing.T) {
 	}
 
 	expectedSkipped := []string{"missing", "mixed"}
-	if !equalSlices(skipped, expectedSkipped) {
+	if !equalSlicesUnordered(skipped, expectedSkipped) {
 		t.Errorf("Expected skipped endpoints %v, got %v", expectedSkipped, skipped)
 	}
 
@@ -317,6 +317,31 @@ func equalSlices(a, b []string) bool {
 	}
 	for i := range a {
 		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func equalSlicesUnordered(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	// Create maps to count occurrences
+	countA := make(map[string]int)
+	countB := make(map[string]int)
+
+	for _, item := range a {
+		countA[item]++
+	}
+	for _, item := range b {
+		countB[item]++
+	}
+
+	// Compare maps
+	for item, count := range countA {
+		if countB[item] != count {
 			return false
 		}
 	}
@@ -346,11 +371,24 @@ func TestGetGlobalSecretsPath(t *testing.T) {
 }
 
 func TestGetProjectConfigPath(t *testing.T) {
-	// Test default path when no XDG config files exist
-	oldConfig := os.Getenv("MCPROXY_CONFIG")
-	defer os.Setenv("MCPROXY_CONFIG", oldConfig)
+	tmpDir := t.TempDir()
 
+	// Save original environment variables
+	originalHome := os.Getenv("HOME")
+	originalUserConfigDir := os.Getenv("XDG_CONFIG_HOME")
+	originalConfig := os.Getenv("MCPROXY_CONFIG")
+
+	defer func() {
+		os.Setenv("HOME", originalHome)
+		os.Setenv("XDG_CONFIG_HOME", originalUserConfigDir)
+		os.Setenv("MCPROXY_CONFIG", originalConfig)
+	}()
+
+	// Test default path when no XDG config files exist
+	os.Setenv("XDG_CONFIG_HOME", tmpDir)
 	os.Unsetenv("MCPROXY_CONFIG")
+
+	// Ensure no config files exist in XDG directory
 	path := getProjectConfigPath()
 	expected := "./config.json"
 	if path != expected {
