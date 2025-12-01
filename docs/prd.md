@@ -39,7 +39,7 @@ mcproxy is a Go-based HTTP proxy service that registers dynamic POST endpoints a
   - For each header value, replace all `{{ var_name }}` occurrences with the corresponding secret value.
   - If any placeholder cannot be resolved, log a `warn` with the endpoint name and missing variable, and skip registering that endpoint.
 - **Endpoint registration**
-  - For each valid `mcps` entry, register an HTTP `POST` handler at `/ENDPOINT_NAME`.
+  - For each valid `mcps` entry, register an HTTP `POST` handler at `/mcp/ENDPOINT_NAME`.
   - Reject non-POST methods with 405.
   - On each request:
     - Forward the body as-is to the upstream `url`.

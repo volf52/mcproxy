@@ -129,10 +129,43 @@ go run cmd/generate-schema/main.go
 ### Configuration Fields
 
 - **`endpoints`**: Map of endpoint configurations (required)
-  - Key: Endpoint name (becomes `POST /{name}` route)
+  - Key: Endpoint name (becomes `POST /mcp/{name}` route)
   - `upstreamUrl`: Target URL for proxying (required)
   - `headers`: Additional headers with secret templating support
 - **`logFile`**: Optional file path for logging output
+
+## Usage Examples
+
+### Accessing Endpoints
+```bash
+# Proxy requests to configured endpoints
+curl -X POST http://localhost:8099/mcp/billing \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 1000, "currency": "USD"}'
+
+curl -X POST http://localhost:8099/mcp/slack-webhook \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Payment processed"}'
+
+# Service status (unchanged)
+curl http://localhost:8099/
+# Returns: {"service": "mcproxy", "status": "running"}
+```
+
+### Migration from Previous Versions
+If you're upgrading from a version before 1.1.0, you need to update your endpoint URLs:
+- Old: `POST http://localhost:8099/billing`
+- New: `POST http://localhost:8099/mcp/billing`
+
+### HTTP Methods
+- **POST**: Forward request to upstream service
+- **GET/PUT/DELETE/PATCH**: Returns `405 Method Not Allowed`
+
+### Error Responses
+- **404 Not Found**: Endpoint does not exist
+- **405 Method Not Allowed**: HTTP method not supported
+- **500 Internal Server Error**: Error creating upstream request
+- **502 Bad Gateway**: Error forwarding request to upstream
 
 ## Development
 
@@ -198,7 +231,7 @@ Manual workflow to update JSON Schema:
 ## Behavior
 
 - **Startup**: Fails fast if config or secrets files are missing/invalid
-- **Endpoints**: Each endpoint registers a POST handler at `/{name}`
+- **Endpoints**: Each endpoint registers a POST handler at `/mcp/{name}`
 - **Secret Templating**: Header values support `{{ secret_name }}` substitution from secrets file
 - **HTTP Client**: Shared client with connection reuse and TLS support for HTTPS
 - **Logging**: Structured logs to stdout; optional file output when `logFile` is configured

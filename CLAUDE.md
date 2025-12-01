@@ -50,13 +50,13 @@ The service consists of several key components:
 ### Core Components
 - **Configuration Loader**: Loads and validates JSON config and secrets files from configurable paths
 - **Template Resolver**: Substitutes `{{ var_name }}` placeholders in header values using secrets map
-- **Proxy Registry**: Registers POST handlers for each valid endpoint at `/{name}`
+- **Proxy Registry**: Registers POST handlers for each valid endpoint at `/mcp/{name}`
 - **HTTP Client**: Shared client with connection reuse, timeouts, and TLS support for HTTPS upstreams
 - **Structured Logging**: Emits logs to stdout with optional file output
 
 ### Request Flow
 1. Service starts and loads config/secrets files
-2. For each valid MCP entry, registers a POST handler at `/{endpoint_name}`
+2. For each valid MCP entry, registers a POST handler at `/mcp/{endpoint_name}`
 3. Incoming POST requests are forwarded to the configured upstream URL
 4. Headers are merged: incoming headers → configured headers (with secret substitution)
 5. Response (status, headers, body) is streamed back to caller

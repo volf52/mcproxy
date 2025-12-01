@@ -33,7 +33,7 @@ func (s *Server) Start() error {
 	// Register handlers for each endpoint
 	for name, endpoint := range s.endpoints {
 		handler := s.createProxyHandler(name, endpoint)
-		pattern := fmt.Sprintf("/%s", name)
+		pattern := fmt.Sprintf("/mcp/%s", name)
 		mux.HandleFunc(pattern, handler)
 		logging.LogEndpointRegistration(name, endpoint.Url, endpoint.Headers)
 	}
