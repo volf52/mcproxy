@@ -37,6 +37,12 @@ Both files support JSONC format (JSON with comments) and fall back to .json exte
 
 Default listen address: `:8099`
 
+## Environment Variables
+
+- **MCPROXY_CONFIG**: Path to the configuration file. Overrides default XDG-compliant paths.
+- **MCPROXY_SECRETS**: Path to the secrets file. Overrides default paths.
+- **MCPROXY_PORT**: Port for the HTTP server to listen on. Supports both "8099" and ":8099" formats. Defaults to ":8099" if not set.
+
 ## Architecture
 
 The service consists of several key components:
