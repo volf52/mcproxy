@@ -38,13 +38,10 @@ func getGlobalConfigPath() string {
 		return ""
 	}
 
-	// Check for JSONC file first
-	jsoncPath := filepath.Join(home, "config.jsonc")
-	if fileExists(jsoncPath) {
-		return jsoncPath
+	if fileExists(filepath.Join(home, "config.jsonc")) {
+		return filepath.Join(home, "config.jsonc")
 	}
-
-	// Fall back to JSON file
+	// Return default JSON path even if it doesn't exist
 	return filepath.Join(home, "config.json")
 }
 
@@ -57,13 +54,10 @@ func getGlobalSecretsPath() string {
 		return ""
 	}
 
-	// Check for JSONC file first
-	jsoncPath := filepath.Join(home, "secrets.jsonc")
-	if fileExists(jsoncPath) {
-		return jsoncPath
+	if fileExists(filepath.Join(home, "secrets.jsonc")) {
+		return filepath.Join(home, "secrets.jsonc")
 	}
-
-	// Fall back to JSON file
+	// Return default JSON path even if it doesn't exist
 	return filepath.Join(home, "secrets.json")
 }
 
@@ -71,43 +65,37 @@ func getGlobalSecretsPath() string {
 // Checks XDG config directory first, then project directory, with .jsonc preference
 func getProjectConfigPath() string {
 	configPath := os.Getenv("MCPROXY_CONFIG")
-	if configPath == "" {
-		// Check ~/.config/mcproxy/ first (XDG-compliant)
-		if userConfigDir, err := os.UserConfigDir(); err == nil {
-			mcproxyConfigDir := filepath.Join(userConfigDir, "mcproxy")
-			jsoncPath := filepath.Join(mcproxyConfigDir, "config.jsonc")
-			if fileExists(jsoncPath) {
-				return jsoncPath
-			}
-			jsonPath := filepath.Join(mcproxyConfigDir, "config.json")
-			if fileExists(jsonPath) {
-				return jsonPath
-			}
-		}
-
-		// Fall back to project directory for backward compatibility
-		if fileExists("./config.jsonc") {
-			return "./config.jsonc"
-		}
-		// Fall back to JSON file
-		return "./config.json"
+	if configPath != "" {
+		return configPath
 	}
-	return configPath
+
+	// Check XDG directory first
+	if xdgPath := getXDGConfigPath(); xdgPath != "" {
+		return xdgPath
+	}
+
+	// Fall back to project directory for backward compatibility
+	if fileExists("./config.jsonc") {
+		return "./config.jsonc"
+	}
+	// Return default JSON path even if it doesn't exist
+	return "./config.json"
 }
 
 // getProjectSecretsPath returns the path to the project secrets file
-// Checks for .jsonc first if no environment variable is set
+// Checks project directory only, with .jsonc preference
 func getProjectSecretsPath() string {
 	secretsPath := os.Getenv("MCPROXY_SECRETS")
-	if secretsPath == "" {
-		// Check for JSONC file first
-		if fileExists("./secrets.jsonc") {
-			return "./secrets.jsonc"
-		}
-		// Fall back to JSON file
-		return "./secrets.json"
+	if secretsPath != "" {
+		return secretsPath
 	}
-	return secretsPath
+
+	// Check project directory for backward compatibility
+	if fileExists("./secrets.jsonc") {
+		return "./secrets.jsonc"
+	}
+	// Return default JSON path even if it doesn't exist
+	return "./secrets.json"
 }
 
 // fileExists checks if a file exists and is not a directory
@@ -124,8 +112,39 @@ func IsJSONCFile(path string) bool {
 	return strings.HasSuffix(strings.ToLower(path), ".jsonc")
 }
 
+// findConfigFile looks for config files in a directory, preferring .jsonc over .json
+func findConfigFile(baseDir, filename string) string {
+	if baseDir == "" || filename == "" {
+		return ""
+	}
+
+	jsoncPath := filepath.Join(baseDir, filename+".jsonc")
+	if fileExists(jsoncPath) {
+		return jsoncPath
+	}
+
+	jsonPath := filepath.Join(baseDir, filename+".json")
+	if fileExists(jsonPath) {
+		return jsonPath
+	}
+
+	return ""
+}
+
+// getXDGConfigPath returns the XDG-compliant config path
+// Checks ~/.config/mcproxy/ for config files
+func getXDGConfigPath() string {
+	userConfigDir, err := os.UserConfigDir()
+	if err == nil {
+		mcproxyConfigDir := filepath.Join(userConfigDir, "mcproxy")
+		return findConfigFile(mcproxyConfigDir, "config")
+	}
+	logging.Debugf("Warning: Failed to get user config directory: %v", err)
+	return ""
+}
+
 // UnmarshalWithAutoDetection automatically detects JSON or JSONC format and unmarshals accordingly
-func UnmarshalWithAutoDetection(data []byte, v interface{}, path string) error {
+func UnmarshalWithAutoDetection(data []byte, v any, path string) error {
 	if IsJSONCFile(path) {
 		// Use JSONC parser for .jsonc files
 		return jsonc.Unmarshal(data, v)
@@ -137,12 +156,15 @@ func UnmarshalWithAutoDetection(data []byte, v interface{}, path string) error {
 
 // loadConfigFromFile loads configuration from a file, returns nil if file doesn't exist
 func loadConfigFromFile(path string) (*Config, error) {
-	if !fileExists(path) {
-		return nil, nil // File not found is not an error for optional files
+	if path == "" {
+		return nil, nil
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // File not found is not an error for optional files
+		}
 		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)
 	}
 
@@ -157,12 +179,15 @@ func loadConfigFromFile(path string) (*Config, error) {
 
 // loadSecretsFromFile loads secrets from a file, returns nil if file doesn't exist
 func loadSecretsFromFile(path string) (Secrets, error) {
-	if !fileExists(path) {
-		return nil, nil // File not found is not an error for optional files
+	if path == "" {
+		return nil, nil
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // File not found is not an error for optional files
+		}
 		return nil, fmt.Errorf("failed to read secrets file %s: %w", path, err)
 	}
 
@@ -193,9 +218,7 @@ func mergeConfigs(global, project *Config) *Config {
 
 	// Override with project endpoints
 	if project != nil {
-		for name, endpoint := range project.Endpoints {
-			merged.Endpoints[name] = endpoint
-		}
+		maps.Copy(merged.Endpoints, project.Endpoints)
 		if project.LogFile != "" {
 			merged.LogFile = project.LogFile
 		}
@@ -221,7 +244,7 @@ func mergeSecrets(global, project Secrets) Secrets {
 func LoadConfigHierarchical() (*HierarchicalLoadResult, error) {
 	result := &HierarchicalLoadResult{}
 
-	// Get file paths
+	// Get file paths using the existing path resolution logic
 	globalConfigPath := getGlobalConfigPath()
 	globalSecretsPath := getGlobalSecretsPath()
 	projectConfigPath := getProjectConfigPath()
@@ -237,43 +260,31 @@ func LoadConfigHierarchical() (*HierarchicalLoadResult, error) {
 	logging.Debugf("Project config: %s", projectConfigPath)
 	logging.Debugf("Project secrets: %s", projectSecretsPath)
 
-	// Load global files
-	var globalConfig, projectConfig *Config
-	var globalSecrets, projectSecrets Secrets
-
-	if globalConfigPath != "" {
-		globalConfig, _ = loadConfigFromFile(globalConfigPath)
-		if globalConfig != nil {
-			result.GlobalFiles.Loaded = true
-			result.GlobalFiles.Endpoints = len(globalConfig.Endpoints)
-			logging.Printf("Loaded global config from %s (%d endpoints)", globalConfigPath, len(globalConfig.Endpoints))
-		}
+	// Load all files without redundant path checks
+	globalConfig, _ := loadConfigFromFile(globalConfigPath)
+	if globalConfig != nil {
+		result.GlobalFiles.Loaded = true
+		result.GlobalFiles.Endpoints = len(globalConfig.Endpoints)
+		logging.Printf("Loaded global config from %s (%d endpoints)", globalConfigPath, len(globalConfig.Endpoints))
 	}
 
-	if globalSecretsPath != "" {
-		globalSecrets, _ = loadSecretsFromFile(globalSecretsPath)
-		if globalSecrets != nil {
-			result.GlobalFiles.Secrets = len(globalSecrets)
-			logging.Printf("Loaded global secrets from %s (%d entries)", globalSecretsPath, len(globalSecrets))
-		}
+	globalSecrets, _ := loadSecretsFromFile(globalSecretsPath)
+	if globalSecrets != nil {
+		result.GlobalFiles.Secrets = len(globalSecrets)
+		logging.Printf("Loaded global secrets from %s (%d entries)", globalSecretsPath, len(globalSecrets))
 	}
 
-	// Load project files
-	if projectConfigPath != "" {
-		projectConfig, _ = loadConfigFromFile(projectConfigPath)
-		if projectConfig != nil {
-			result.ProjectFiles.Loaded = true
-			result.ProjectFiles.Endpoints = len(projectConfig.Endpoints)
-			logging.Printf("Loaded project config from %s (%d endpoints)", projectConfigPath, len(projectConfig.Endpoints))
-		}
+	projectConfig, _ := loadConfigFromFile(projectConfigPath)
+	if projectConfig != nil {
+		result.ProjectFiles.Loaded = true
+		result.ProjectFiles.Endpoints = len(projectConfig.Endpoints)
+		logging.Printf("Loaded project config from %s (%d endpoints)", projectConfigPath, len(projectConfig.Endpoints))
 	}
 
-	if projectSecretsPath != "" {
-		projectSecrets, _ = loadSecretsFromFile(projectSecretsPath)
-		if projectSecrets != nil {
-			result.ProjectFiles.Secrets = len(projectSecrets)
-			logging.Printf("Loaded project secrets from %s (%d entries)", projectSecretsPath, len(projectSecrets))
-		}
+	projectSecrets, _ := loadSecretsFromFile(projectSecretsPath)
+	if projectSecrets != nil {
+		result.ProjectFiles.Secrets = len(projectSecrets)
+		logging.Printf("Loaded project secrets from %s (%d entries)", projectSecretsPath, len(projectSecrets))
 	}
 
 	// Merge configurations
