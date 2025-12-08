@@ -1,16 +1,17 @@
 ---
 id: task-00012
 title: Add /mcp prefix to dynamic endpoints
-status: To Do
+status: Done
 assignee: []
 created_date: '2025-12-01 09:20'
-updated_date: '2025-12-01 09:26'
+updated_date: '2025-12-08 19:26'
 labels:
   - backend
   - routing
   - v1
 dependencies: []
 priority: medium
+ordinal: 500
 ---
 
 ## Description
@@ -125,3 +126,24 @@ pattern := fmt.Sprintf("/%s", name)
 ### Rollback Plan
 If issues arise, rollback is simple: revert the single line change in server.go line 36 back to `fmt.Sprintf("/%s", name)`
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+- **Breaking Change**: This is a breaking change for existing clients
+- **Configuration**: No config file changes needed - only runtime behavior changes
+- **Dependencies**: No new dependencies required
+- **Performance**: No performance impact
+- **Security**: No security implications
+
+### Test Strategy
+- Use table-driven tests for comprehensive coverage
+- Mock upstream servers for isolated testing  
+- Test both HTTP and HTTPS upstreams
+- Verify header forwarding still works correctly
+- Test secret templating functionality with new paths
+
+### Rollback Plan
+If issues arise, rollback is simple: revert the single line change in server.go line 36 back to `fmt.Sprintf("/%s", name)`
+<!-- SECTION:PLAN:END -->
+<!-- SECTION:NOTES:END -->

@@ -4,7 +4,7 @@ title: Implement hierarchical config and secrets with project overrides
 status: Done
 assignee: []
 created_date: '2025-11-27 16:19'
-updated_date: '2025-11-27 21:22'
+updated_date: '2025-12-08 19:26'
 labels:
   - configuration
   - secrets
@@ -12,7 +12,7 @@ labels:
   - v1
 dependencies: []
 priority: high
-ordinal: 1000
+ordinal: 3000
 ---
 
 ## Description

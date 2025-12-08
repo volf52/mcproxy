@@ -4,11 +4,11 @@ title: Change default config file location to ~/.config/mcproxy/config.jsonc
 status: Done
 assignee: []
 created_date: '2025-11-28 16:49'
-updated_date: '2025-12-01 00:38'
+updated_date: '2025-12-08 19:26'
 labels: []
 dependencies: []
 priority: medium
-ordinal: 1000
+ordinal: 2000
 ---
 
 ## Description

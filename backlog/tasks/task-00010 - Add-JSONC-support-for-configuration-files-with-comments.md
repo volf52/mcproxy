@@ -4,10 +4,11 @@ title: Add JSONC support for configuration files with comments
 status: Done
 assignee: []
 created_date: '2025-11-28 16:50'
-updated_date: '2025-11-29 02:27'
+updated_date: '2025-12-08 19:26'
 labels: []
 dependencies: []
 priority: low
+ordinal: 4000
 ---
 
 ## Description
