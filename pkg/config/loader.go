@@ -62,7 +62,7 @@ func getGlobalSecretsPath() string {
 }
 
 // getProjectConfigPath returns the path to the project config file
-// Checks XDG config directory first, then project directory, with .jsonc preference
+// Checks XDG config directory first, then .mcproxy directory, with .jsonc preference
 func getProjectConfigPath() string {
 	configPath := os.Getenv("MCPROXY_CONFIG")
 	if configPath != "" {
@@ -74,28 +74,40 @@ func getProjectConfigPath() string {
 		return xdgPath
 	}
 
-	// Fall back to project directory for backward compatibility
-	if fileExists("./config.jsonc") {
-		return "./config.jsonc"
+	// Check .mcproxy directory
+	mcproxyDir := ".mcproxy"
+	// Check if directory exists (not a file)
+	if _, err := os.Stat(mcproxyDir); os.IsNotExist(err) {
+		// Directory doesn't exist, return default path
+		return filepath.Join(mcproxyDir, "config.json")
+	}
+	if fileExists(filepath.Join(mcproxyDir, "config.jsonc")) {
+		return filepath.Join(mcproxyDir, "config.jsonc")
 	}
 	// Return default JSON path even if it doesn't exist
-	return "./config.json"
+	return filepath.Join(mcproxyDir, "config.json")
 }
 
 // getProjectSecretsPath returns the path to the project secrets file
-// Checks project directory only, with .jsonc preference
+// Checks .mcproxy directory only, with .jsonc preference
 func getProjectSecretsPath() string {
 	secretsPath := os.Getenv("MCPROXY_SECRETS")
 	if secretsPath != "" {
 		return secretsPath
 	}
 
-	// Check project directory for backward compatibility
-	if fileExists("./secrets.jsonc") {
-		return "./secrets.jsonc"
+	// Check .mcproxy directory
+	mcproxyDir := ".mcproxy"
+	// Check if directory exists (not a file)
+	if _, err := os.Stat(mcproxyDir); os.IsNotExist(err) {
+		// Directory doesn't exist, return default path
+		return filepath.Join(mcproxyDir, "secrets.json")
+	}
+	if fileExists(filepath.Join(mcproxyDir, "secrets.jsonc")) {
+		return filepath.Join(mcproxyDir, "secrets.jsonc")
 	}
 	// Return default JSON path even if it doesn't exist
-	return "./secrets.json"
+	return filepath.Join(mcproxyDir, "secrets.json")
 }
 
 // fileExists checks if a file exists and is not a directory

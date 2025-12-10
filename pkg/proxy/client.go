@@ -22,7 +22,7 @@ func createHTTPClient() *http.Client {
 		IdleConnTimeout:     90 * time.Second,
 		DisableCompression:  false, // Enable compression
 		// Additional TLS settings for better security and performance
-		ForceAttemptHTTP2:   true, // Enable HTTP/2 for better performance
+		ForceAttemptHTTP2: true, // Enable HTTP/2 for better performance
 	}
 
 	return &http.Client{

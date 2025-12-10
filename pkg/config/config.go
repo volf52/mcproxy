@@ -30,11 +30,12 @@ type Secrets map[string]string
 func LoadConfig() (*Config, error) {
 	configPath := os.Getenv("MCPROXY_CONFIG")
 	if configPath == "" {
-		// Check for JSONC file first
-		if fileExists("./config.jsonc") {
-			configPath = "./config.jsonc"
+		// Check for JSONC file first in .mcproxy directory
+		mcproxyDir := ".mcproxy"
+		if fileExists(filepath.Join(mcproxyDir, "config.jsonc")) {
+			configPath = filepath.Join(mcproxyDir, "config.jsonc")
 		} else {
-			configPath = "./config.json"
+			configPath = filepath.Join(mcproxyDir, "config.json")
 		}
 	}
 
@@ -60,17 +61,26 @@ func LoadConfig() (*Config, error) {
 func LoadSecrets() (Secrets, error) {
 	secretsPath := os.Getenv("MCPROXY_SECRETS")
 	if secretsPath == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get user home directory: %w", err)
-		}
-
-		// Check for JSONC file first
-		jsoncPath := filepath.Join(home, "secrets.jsonc")
-		if fileExists(jsoncPath) {
-			secretsPath = jsoncPath
+		// Check .mcproxy directory first
+		mcproxyDir := ".mcproxy"
+		if fileExists(filepath.Join(mcproxyDir, "secrets.jsonc")) {
+			secretsPath = filepath.Join(mcproxyDir, "secrets.jsonc")
+		} else if fileExists(filepath.Join(mcproxyDir, "secrets.json")) {
+			secretsPath = filepath.Join(mcproxyDir, "secrets.json")
 		} else {
-			secretsPath = filepath.Join(home, "secrets.json")
+			// Fallback to home directory
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get user home directory: %w", err)
+			}
+
+			// Check for JSONC file first
+			jsoncPath := filepath.Join(home, "secrets.jsonc")
+			if fileExists(jsoncPath) {
+				secretsPath = jsoncPath
+			} else {
+				secretsPath = filepath.Join(home, "secrets.json")
+			}
 		}
 	}
 

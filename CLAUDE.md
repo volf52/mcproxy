@@ -29,9 +29,15 @@ gofmt -w .                       # Format code (or use goimports)
 
 ## Configuration
 
-The service requires two JSON files:
-- **Config file**: `~/.config/mcproxy/config.jsonc` (XDG-compliant, override with `MCPROXY_CONFIG` env var)
-- **Secrets file**: `~/secrets.jsonc` (override with `MCPROXY_SECRETS` env var)
+The service loads configuration from multiple locations in priority order:
+
+### Project-specific Configuration (highest priority):
+- **Config file**: `./.mcproxy/config.jsonc` (override with `MCPROXY_CONFIG` env var)
+- **Secrets file**: `./.mcproxy/secrets.jsonc` (override with `MCPROXY_SECRETS` env var)
+
+### Global Configuration:
+- **Config file**: `~/.config/mcproxy/config.jsonc` (XDG-compliant)
+- **Secrets file**: `~/secrets.jsonc`
 
 Both files support JSONC format (JSON with comments) and fall back to .json extensions.
 
@@ -39,8 +45,8 @@ Default listen address: `:8099`
 
 ## Environment Variables
 
-- **MCPROXY_CONFIG**: Path to the configuration file. Overrides default XDG-compliant paths.
-- **MCPROXY_SECRETS**: Path to the secrets file. Overrides default paths.
+- **MCPROXY_CONFIG**: Path to the configuration file. Overrides default search paths (both .mcproxy/ and XDG).
+- **MCPROXY_SECRETS**: Path to the secrets file. Overrides default search paths (both .mcproxy/ and home directory).
 - **MCPROXY_PORT**: Port for the HTTP server to listen on. Supports both "8099" and ":8099" formats. Defaults to ":8099" if not set.
 
 ## Architecture

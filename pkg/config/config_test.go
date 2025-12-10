@@ -390,7 +390,7 @@ func TestGetProjectConfigPath(t *testing.T) {
 
 	// Ensure no config files exist in XDG directory
 	path := getProjectConfigPath()
-	expected := "./config.json"
+	expected := ".mcproxy/config.json"
 	if path != expected {
 		t.Errorf("Expected project config path '%s', got '%s'", expected, path)
 	}
@@ -456,23 +456,25 @@ func TestGetProjectConfigPath_XDGCompliant(t *testing.T) {
 	os.Chdir(tmpTestDir)
 	defer os.Chdir(originalWd)
 
-	// Create project JSONC file
-	projectJSONCPath := filepath.Join(tmpTestDir, "config.jsonc")
+	// Create project JSONC file in .mcproxy directory
+	mcproxyDir := filepath.Join(tmpTestDir, ".mcproxy")
+	os.MkdirAll(mcproxyDir, 0o755)
+	projectJSONCPath := filepath.Join(mcproxyDir, "config.jsonc")
 	os.WriteFile(projectJSONCPath, []byte("{}"), 0o644)
 
 	path = getProjectConfigPath()
-	expected := "./config.jsonc"
+	expected := ".mcproxy/config.jsonc"
 	if path != expected {
 		t.Errorf("Expected project JSONC path '%s', got '%s'", expected, path)
 	}
 
 	// Test 4: Fallback to project directory config.json
 	os.Remove(projectJSONCPath)
-	projectJSONPath := filepath.Join(tmpTestDir, "config.json")
+	projectJSONPath := filepath.Join(mcproxyDir, "config.json")
 	os.WriteFile(projectJSONPath, []byte("{}"), 0o644)
 
 	path = getProjectConfigPath()
-	expected = "./config.json"
+	expected = ".mcproxy/config.json"
 	if path != expected {
 		t.Errorf("Expected project JSON path '%s', got '%s'", expected, path)
 	}
@@ -551,7 +553,7 @@ func TestGetProjectSecretsPath(t *testing.T) {
 
 	os.Unsetenv("MCPROXY_SECRETS")
 	path := getProjectSecretsPath()
-	expected := "./secrets.json"
+	expected := ".mcproxy/secrets.json"
 	if path != expected {
 		t.Errorf("Expected project secrets path '%s', got '%s'", expected, path)
 	}
@@ -562,6 +564,52 @@ func TestGetProjectSecretsPath(t *testing.T) {
 	expected = "/custom/secrets.json"
 	if path != expected {
 		t.Errorf("Expected project secrets path '%s', got '%s'", expected, path)
+	}
+}
+
+func TestGetProjectSecretsPath_McproxyDirectory(t *testing.T) {
+	// Test that .mcproxy directory is checked correctly
+	tmpDir := t.TempDir()
+	originalWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(originalWd)
+
+	oldSecrets := os.Getenv("MCPROXY_SECRETS")
+	defer os.Setenv("MCPROXY_SECRETS", oldSecrets)
+	os.Unsetenv("MCPROXY_SECRETS")
+
+	// Test with .mcproxy directory containing JSONC file
+	mcproxyDir := filepath.Join(tmpDir, ".mcproxy")
+	os.MkdirAll(mcproxyDir, 0o755)
+
+	secretsJSONCPath := filepath.Join(mcproxyDir, "secrets.jsonc")
+	os.WriteFile(secretsJSONCPath, []byte(`{"test": "value"}`), 0o644)
+
+	path := getProjectSecretsPath()
+	expected := ".mcproxy/secrets.jsonc"
+	if path != expected {
+		t.Errorf("Expected .mcproxy JSONC secrets path '%s', got '%s'", expected, path)
+	}
+
+	// Test with .mcproxy directory containing JSON file only
+	os.Remove(secretsJSONCPath)
+	secretsJSONPath := filepath.Join(mcproxyDir, "secrets.json")
+	os.WriteFile(secretsJSONPath, []byte(`{"test": "value"}`), 0o644)
+
+	path = getProjectSecretsPath()
+	expected = ".mcproxy/secrets.json"
+	if path != expected {
+		t.Errorf("Expected .mcproxy JSON secrets path '%s', got '%s'", expected, path)
+	}
+
+	// Test that old location is not checked
+	os.WriteFile(filepath.Join(tmpDir, "secrets.json"), []byte(`{"old": "location"}`), 0o644)
+	os.Remove(filepath.Join(mcproxyDir, "secrets.json"))
+
+	path = getProjectSecretsPath()
+	expected = ".mcproxy/secrets.json" // Should still return .mcproxy path even if file doesn't exist
+	if path != expected {
+		t.Errorf("Expected .mcproxy secrets path even when file doesn't exist '%s', got '%s'", expected, path)
 	}
 }
 
