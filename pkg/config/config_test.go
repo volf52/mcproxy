@@ -825,8 +825,11 @@ func TestLoadConfigHierarchical(t *testing.T) {
 	data, _ = json.Marshal(globalSecretsContent)
 	os.WriteFile(globalSecretsPath, data, 0o644)
 
-	// Set up project config
-	projectConfigPath := filepath.Join(tmpDir, "project_config.json")
+	// Set up project config in .mcproxy directory
+	mcproxyDir := filepath.Join(tmpDir, ".mcproxy")
+	os.MkdirAll(mcproxyDir, 0o755)
+
+	projectConfigPath := filepath.Join(mcproxyDir, "config.json")
 	projectConfigContent := map[string]interface{}{
 		"endpoints": map[string]interface{}{
 			"project": map[string]interface{}{
@@ -837,24 +840,29 @@ func TestLoadConfigHierarchical(t *testing.T) {
 	data, _ = json.Marshal(projectConfigContent)
 	os.WriteFile(projectConfigPath, data, 0o644)
 
-	// Set up project secrets
-	projectSecretsPath := filepath.Join(tmpDir, "project_secrets.json")
+	// Set up project secrets in .mcproxy directory
+	projectSecretsPath := filepath.Join(mcproxyDir, "secrets.json")
 	projectSecretsContent := map[string]string{
 		"project_token": "project-secret",
 	}
 	data, _ = json.Marshal(projectSecretsContent)
 	os.WriteFile(projectSecretsPath, data, 0o644)
 
-	// Mock environment
+	// Mock environment - change to temp directory for project files
 	originalHome := os.Getenv("HOME")
 	originalConfig := os.Getenv("MCPROXY_CONFIG")
 	originalSecrets := os.Getenv("MCPROXY_SECRETS")
+	originalWd, _ := os.Getwd()
 
+	// Change to temp directory so .mcproxy is found
+	os.Chdir(tmpDir)
 	os.Setenv("HOME", homeDir)
-	os.Setenv("MCPROXY_CONFIG", projectConfigPath)
-	os.Setenv("MCPROXY_SECRETS", projectSecretsPath)
+	// Clear env vars to test hierarchical loading
+	os.Unsetenv("MCPROXY_CONFIG")
+	os.Unsetenv("MCPROXY_SECRETS")
 
 	defer func() {
+		os.Chdir(originalWd)
 		os.Setenv("HOME", originalHome)
 		os.Setenv("MCPROXY_CONFIG", originalConfig)
 		os.Setenv("MCPROXY_SECRETS", originalSecrets)
@@ -1324,8 +1332,11 @@ func TestLoadConfigHierarchical_JSONC(t *testing.T) {
 	}`
 	os.WriteFile(globalConfigPath, []byte(globalConfigContent), 0o644)
 
-	// Set up project JSONC config file
-	projectConfigPath := filepath.Join(tmpDir, "project_config.jsonc")
+	// Set up project JSONC config file in .mcproxy directory
+	mcproxyDir := filepath.Join(tmpDir, ".mcproxy")
+	os.MkdirAll(mcproxyDir, 0o755)
+
+	projectConfigPath := filepath.Join(mcproxyDir, "config.jsonc")
 	projectConfigContent := `{
 		// Project-specific configuration
 		"endpoints": {
@@ -1345,7 +1356,7 @@ func TestLoadConfigHierarchical_JSONC(t *testing.T) {
 	os.WriteFile(globalSecretsPath, []byte(globalSecretsContent), 0o644)
 
 	// Set up project JSONC secrets file
-	projectSecretsPath := filepath.Join(tmpDir, "project_secrets.jsonc")
+	projectSecretsPath := filepath.Join(mcproxyDir, "secrets.jsonc")
 	projectSecretsContent := `{
 		// Project secrets
 		"project_token": "project-secret"
@@ -1356,12 +1367,17 @@ func TestLoadConfigHierarchical_JSONC(t *testing.T) {
 	originalHome := os.Getenv("HOME")
 	originalConfig := os.Getenv("MCPROXY_CONFIG")
 	originalSecrets := os.Getenv("MCPROXY_SECRETS")
+	originalWd, _ := os.Getwd()
 
+	// Change to temp directory so .mcproxy is found
+	os.Chdir(tmpDir)
 	os.Setenv("HOME", tmpDir)
-	os.Setenv("MCPROXY_CONFIG", projectConfigPath)
-	os.Setenv("MCPROXY_SECRETS", projectSecretsPath)
+	// Clear env vars to test hierarchical loading
+	os.Unsetenv("MCPROXY_CONFIG")
+	os.Unsetenv("MCPROXY_SECRETS")
 
 	defer func() {
+		os.Chdir(originalWd)
 		os.Setenv("HOME", originalHome)
 		os.Setenv("MCPROXY_CONFIG", originalConfig)
 		os.Setenv("MCPROXY_SECRETS", originalSecrets)
@@ -1440,5 +1456,180 @@ func TestUnmarshalWithAutoDetection_BackwardCompatibility(t *testing.T) {
 
 	if len(config.Endpoints) != 1 {
 		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
+	}
+}
+
+func TestLoadConfigHierarchical_ExclusiveEnv(t *testing.T) {
+	// Setup temp directories
+	tempHome := t.TempDir()
+	tempConfigDir := t.TempDir()
+
+	// Save original environment variables
+	originalHome := os.Getenv("HOME")
+	originalUserConfigDir := os.Getenv("XDG_CONFIG_HOME")
+	originalConfig := os.Getenv("MCPROXY_CONFIG")
+	originalSecrets := os.Getenv("MCPROXY_SECRETS")
+
+	defer func() {
+		os.Setenv("HOME", originalHome)
+		os.Setenv("XDG_CONFIG_HOME", originalUserConfigDir)
+		os.Setenv("MCPROXY_CONFIG", originalConfig)
+		os.Setenv("MCPROXY_SECRETS", originalSecrets)
+	}()
+
+	// Set up environment
+	os.Setenv("HOME", tempHome)
+	os.Setenv("XDG_CONFIG_HOME", tempConfigDir)
+
+	// Create global config file in HOME directory
+	globalConfig := Config{
+		Endpoints: map[string]Endpoint{
+			"global-ep": {
+				Url: "http://global.example.com",
+				Headers: map[string]string{
+					"Global": "true",
+				},
+			},
+		},
+	}
+	globalConfigPath := filepath.Join(tempHome, "config.json")
+	globalConfigData, _ := json.Marshal(globalConfig)
+	os.WriteFile(globalConfigPath, globalConfigData, 0o644)
+
+	// Create global secrets file in HOME directory
+	globalSecrets := Secrets{
+		"global_secret": "global_value",
+	}
+	globalSecretsPath := filepath.Join(tempHome, "secrets.json")
+	globalSecretsData, _ := json.Marshal(globalSecrets)
+	os.WriteFile(globalSecretsPath, globalSecretsData, 0o644)
+
+	// Create specific config file (for testing exclusive mode)
+	specificConfig := Config{
+		Endpoints: map[string]Endpoint{
+			"specific-ep": {
+				Url: "http://specific.example.com",
+				Headers: map[string]string{
+					"Specific": "true",
+				},
+			},
+		},
+	}
+	specificConfigPath := filepath.Join(tempConfigDir, "custom.json")
+	specificConfigData, _ := json.Marshal(specificConfig)
+	os.WriteFile(specificConfigPath, specificConfigData, 0o644)
+
+	// Create specific secrets file (for testing exclusive mode)
+	specificSecrets := Secrets{
+		"specific_secret": "specific_value",
+	}
+	specificSecretsPath := filepath.Join(tempConfigDir, "custom_secrets.json")
+	specificSecretsData, _ := json.Marshal(specificSecrets)
+	os.WriteFile(specificSecretsPath, specificSecretsData, 0o644)
+
+	// Also create XDG config files for hierarchical testing
+	xdgMcproxyDir := filepath.Join(tempConfigDir, "mcproxy")
+	os.MkdirAll(xdgMcproxyDir, 0o755)
+
+	xdgConfigPath := filepath.Join(xdgMcproxyDir, "config.json")
+	os.WriteFile(xdgConfigPath, specificConfigData, 0o644)
+
+	xdgSecretsPath := filepath.Join(xdgMcproxyDir, "secrets.json")
+	os.WriteFile(xdgSecretsPath, specificSecretsData, 0o644)
+
+	// Test with MCPROXY_CONFIG set (exclusive mode)
+	os.Setenv("MCPROXY_CONFIG", specificConfigPath)
+	os.Unsetenv("MCPROXY_SECRETS") // Let secrets load hierarchically for now
+
+	result, err := LoadConfigHierarchical()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Assert global config is NOT loaded
+	if _, exists := result.Config.Endpoints["global-ep"]; exists {
+		t.Errorf("Expected global endpoint to be ignored when MCPROXY_CONFIG is set")
+	}
+
+	// Assert specific config IS loaded
+	if _, exists := result.Config.Endpoints["specific-ep"]; !exists {
+		t.Errorf("Expected specific endpoint to be present")
+	}
+
+	// Check that global files are not loaded
+	if result.GlobalFiles.Loaded {
+		t.Errorf("Expected GlobalFiles.Loaded to be false when MCPROXY_CONFIG is set")
+	}
+
+	// Check that project files path matches the env var
+	if result.ProjectFiles.Path != specificConfigPath {
+		t.Errorf("Expected ProjectFiles.Path to be '%s', got '%s'", specificConfigPath, result.ProjectFiles.Path)
+	}
+
+	// Now test with MCPROXY_SECRETS set (exclusive mode)
+	os.Unsetenv("MCPROXY_CONFIG")
+	os.Setenv("MCPROXY_SECRETS", specificSecretsPath)
+
+	result, err = LoadConfigHierarchical()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Assert global secrets are NOT loaded
+	if _, exists := result.Secrets["global_secret"]; exists {
+		t.Errorf("Expected global secret to be ignored when MCPROXY_SECRETS is set")
+	}
+
+	// Assert specific secrets ARE loaded
+	if _, exists := result.Secrets["specific_secret"]; !exists {
+		t.Errorf("Expected specific secret to be present")
+	}
+
+	// Check that global files have no secrets loaded
+	if result.GlobalFiles.Secrets > 0 {
+		t.Errorf("Expected GlobalFiles.Secrets to be 0 when MCPROXY_SECRETS is set")
+	}
+
+	// Test with both env vars set (both exclusive)
+	os.Setenv("MCPROXY_CONFIG", specificConfigPath)
+	os.Setenv("MCPROXY_SECRETS", specificSecretsPath)
+
+	result, err = LoadConfigHierarchical()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Assert only specific configs are loaded
+	if len(result.Config.Endpoints) != 1 {
+		t.Errorf("Expected 1 endpoint, got %d", len(result.Config.Endpoints))
+	}
+	if _, exists := result.Config.Endpoints["specific-ep"]; !exists {
+		t.Errorf("Expected specific endpoint to be present")
+	}
+
+	// Assert only specific secrets are loaded
+	if len(result.Secrets) != 1 {
+		t.Errorf("Expected 1 secret, got %d", len(result.Secrets))
+	}
+	if _, exists := result.Secrets["specific_secret"]; !exists {
+		t.Errorf("Expected specific secret to be present")
+	}
+
+	// Test with no env vars (hierarchical loading)
+	os.Unsetenv("MCPROXY_CONFIG")
+	os.Unsetenv("MCPROXY_SECRETS")
+
+	result, err = LoadConfigHierarchical()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Assert both global and specific configs are loaded via XDG
+	// (Note: this tests the XDG path since that's where our specific config was created)
+	if _, exists := result.Config.Endpoints["global-ep"]; !exists {
+		t.Errorf("Expected global endpoint to be present in hierarchical mode")
+	}
+	if _, exists := result.Config.Endpoints["specific-ep"]; !exists {
+		t.Errorf("Expected specific endpoint to be present in hierarchical mode")
 	}
 }
