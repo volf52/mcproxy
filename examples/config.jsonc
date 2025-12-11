@@ -1,11 +1,16 @@
 {
   // Example mcproxy configuration with JSONC support
-  // This demonstrates various comment styles and features
+  // This demonstrates various comment styles and features including new timeout and size limits
+
+  // Global settings that apply to all endpoints
+  "globalTimeout": "60s",        // Default timeout for requests (60 seconds)
+  "globalMaxBodySize": 10485760, // Default max request body size (10MB)
 
   "endpoints": {
     // Example API endpoint with authentication
     "test-api": {
-      "upstreamUrl": "https://httpbin.org/post",
+      "url": "https://httpbin.org/post",
+      "timeout": "30s",           // Override global timeout for this endpoint
       "headers": {
         "Authorization": "Bearer {{ test_token }}", // Token from secrets file
         "Content-Type": "application/json",
@@ -18,9 +23,21 @@
      * Used for testing and demonstration purposes
      */
     "webhook": {
-      "upstreamUrl": "https://httpbin.org/webhook",
+      "url": "https://httpbin.org/webhook",
+      "maxBodySize": 1048576,     // Limit to 1MB for this webhook
       "headers": {
         "User-Agent": "mcproxy/1.0" // Custom user agent
+      }
+    },
+
+    // Large file upload endpoint example
+    "file-upload": {
+      "url": "https://api.example.com/upload",
+      "timeout": "300s",          // 5 minutes for large uploads
+      "maxBodySize": 104857600,   // Allow up to 100MB for file uploads
+      "headers": {
+        "Authorization": "Bearer {{ UPLOAD_TOKEN }}",
+        "Content-Type": "multipart/form-data"
       }
     }
   },

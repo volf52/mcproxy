@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"mcproxy/pkg/config"
 )
@@ -614,4 +616,406 @@ func TestMcpPrefixImplementation(t *testing.T) {
 	}
 
 	t.Logf("SUCCESS: /mcp prefix implementation test passed!")
+}
+
+// TestStreamingRequestBody tests that large request bodies are streamed without buffering
+func TestStreamingRequestBody(t *testing.T) {
+	// Create a mock server that receives streaming data
+	var receivedContentLength int64
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify streaming is working by checking content length
+		receivedContentLength = r.ContentLength
+		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+			t.Errorf("Error reading streaming body: %v", err)
+		}
+		r.Body.Close()
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"streamed": true}`))
+	}))
+	defer mockServer.Close()
+
+	// Test with large payload (5MB)
+	largePayload := strings.Repeat("x", 5*1024*1024)
+	expectedLength := int64(len(largePayload))
+
+	endpoints := map[string]config.Endpoint{
+		"stream-test": {
+			Url: mockServer.URL,
+		},
+	}
+
+	server := NewServer(":8080", endpoints)
+
+	// Create test mux with /mcp pattern
+	mux := http.NewServeMux()
+	handler := server.createProxyHandler("stream-test", endpoints["stream-test"])
+	mux.HandleFunc("/mcp/stream-test", handler)
+
+	testServer := httptest.NewServer(mux)
+	defer testServer.Close()
+
+	// Make request with large payload
+	resp, err := http.Post(testServer.URL+"/mcp/stream-test", "application/octet-stream", strings.NewReader(largePayload))
+	if err != nil {
+		t.Fatalf("Error making request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	}
+
+	// Verify the content was streamed correctly
+	if receivedContentLength != expectedLength {
+		t.Errorf("Expected content length %d, got %d", expectedLength, receivedContentLength)
+	}
+}
+
+// TestRequestTimeout tests that timeouts are respected
+func TestRequestTimeout(t *testing.T) {
+	// Create a server that delays response
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(2 * time.Second) // Delay longer than test timeout
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"delayed": true}`))
+	}))
+	defer mockServer.Close()
+
+	// Configure endpoint with short timeout
+	timeout := 500 * time.Millisecond
+	endpoints := map[string]config.Endpoint{
+		"timeout-test": {
+			Url:     mockServer.URL,
+			Timeout: &timeout,
+		},
+	}
+
+	server := NewServer(":8080", endpoints)
+
+	// Create test mux
+	mux := http.NewServeMux()
+	handler := server.createProxyHandler("timeout-test", endpoints["timeout-test"])
+	mux.HandleFunc("/mcp/timeout-test", handler)
+
+	testServer := httptest.NewServer(mux)
+	defer testServer.Close()
+
+	// Make request - should timeout and return 504
+	start := time.Now()
+	resp, err := http.Post(testServer.URL+"/mcp/timeout-test", "application/json", strings.NewReader(`{"test": "data"}`))
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Error making request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Should return 504 Gateway Timeout
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		t.Errorf("Expected status 504 for timeout, got %d", resp.StatusCode)
+	}
+
+	// Verify timeout happened within reasonable time (should be quick, not wait for full 2 seconds)
+	if elapsed > 2*time.Second {
+		t.Errorf("Request took too long to timeout: %v", elapsed)
+	}
+
+	// Verify the timeout was approximately the configured timeout (500ms)
+	if elapsed < 400*time.Millisecond {
+		t.Errorf("Request timed out too quickly: %v (expected around 500ms)", elapsed)
+	}
+
+	t.Logf("Request timed out as expected after %v with status %d", elapsed, resp.StatusCode)
+}
+
+// TestHeaderFiltering tests that hop-by-hop headers are filtered
+func TestHeaderFiltering(t *testing.T) {
+	// First test the filtering function directly
+	t.Run("DirectFilterTest", func(t *testing.T) {
+		originalHeaders := make(http.Header)
+		originalHeaders.Add("Connection", "keep-alive, upgrade")
+		originalHeaders.Add("Keep-Alive", "timeout=30")
+		originalHeaders.Add("Upgrade", "websocket")
+		originalHeaders.Add("Proxy-Connection", "keep-alive")
+		originalHeaders.Add("Transfer-Encoding", "chunked")
+		originalHeaders.Add("Content-Type", "application/json")
+		originalHeaders.Add("Authorization", "Bearer token")
+		originalHeaders.Add("X-Custom-Header", "custom-value")
+
+		filteredHeaders := filterHopByHopHeaders(originalHeaders)
+
+		// Verify hop-by-hop headers were filtered
+		if filteredHeaders.Get("Connection") != "" {
+			t.Errorf("Connection header should have been filtered, got: %s", filteredHeaders.Get("Connection"))
+		}
+		if filteredHeaders.Get("Keep-Alive") != "" {
+			t.Errorf("Keep-Alive header should have been filtered, got: %s", filteredHeaders.Get("Keep-Alive"))
+		}
+		if filteredHeaders.Get("Upgrade") != "" {
+			t.Errorf("Upgrade header should have been filtered, got: %s", filteredHeaders.Get("Upgrade"))
+		}
+		if filteredHeaders.Get("Proxy-Connection") != "" {
+			t.Errorf("Proxy-Connection header should have been filtered, got: %s", filteredHeaders.Get("Proxy-Connection"))
+		}
+
+		// Verify valid headers passed through
+		if filteredHeaders.Get("Content-Type") != "application/json" {
+			t.Errorf("Content-Type header should have passed through, got: %s", filteredHeaders.Get("Content-Type"))
+		}
+		if filteredHeaders.Get("Authorization") != "Bearer token" {
+			t.Errorf("Authorization header should have passed through, got: %s", filteredHeaders.Get("Authorization"))
+		}
+		if filteredHeaders.Get("X-Custom-Header") != "custom-value" {
+			t.Errorf("X-Custom-Header should have passed through, got: %s", filteredHeaders.Get("X-Custom-Header"))
+		}
+	})
+
+	// Then test the full integration
+	t.Run("IntegrationTest", func(t *testing.T) {
+		// Create mock server that logs received headers
+		var receivedHeaders http.Header
+		mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedHeaders = r.Header.Clone()
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"success": true}`))
+		}))
+		defer mockServer.Close()
+
+		endpoints := map[string]config.Endpoint{
+			"header-test": {
+				Url: mockServer.URL,
+			},
+		}
+
+		server := NewServer(":8080", endpoints)
+
+		// Create test mux
+		mux := http.NewServeMux()
+		handler := server.createProxyHandler("header-test", endpoints["header-test"])
+		mux.HandleFunc("/mcp/header-test", handler)
+
+		testServer := httptest.NewServer(mux)
+		defer testServer.Close()
+
+		// Create request with hop-by-hop headers
+		req, err := http.NewRequest("POST", testServer.URL+"/mcp/header-test", strings.NewReader(`{"test": "data"}`))
+		if err != nil {
+			t.Fatalf("Error creating request: %v", err)
+		}
+
+		// Add headers that should be filtered
+		req.Header.Add("Connection", "keep-alive, upgrade")
+		req.Header.Add("Keep-Alive", "timeout=30")
+		req.Header.Add("Upgrade", "websocket")
+		req.Header.Add("Proxy-Connection", "keep-alive")
+		req.Header.Add("Transfer-Encoding", "chunked")
+
+		// Add headers that should pass through
+		req.Header.Add("Content-Type", "application/json")
+		req.Header.Add("Authorization", "Bearer token")
+		req.Header.Add("X-Custom-Header", "custom-value")
+
+		// Make request
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("Error making request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		// Print all received headers for debugging
+		t.Logf("Received headers:")
+		for key, values := range receivedHeaders {
+			for _, value := range values {
+				t.Logf("  %s: %s", key, value)
+			}
+		}
+
+		// Verify hop-by-hop headers were filtered
+		if receivedHeaders.Get("Connection") != "" {
+			t.Errorf("Connection header should have been filtered, got: %s", receivedHeaders.Get("Connection"))
+		}
+		if receivedHeaders.Get("Keep-Alive") != "" {
+			t.Errorf("Keep-Alive header should have been filtered, got: %s", receivedHeaders.Get("Keep-Alive"))
+		}
+		if receivedHeaders.Get("Upgrade") != "" {
+			t.Errorf("Upgrade header should have been filtered, got: %s", receivedHeaders.Get("Upgrade"))
+		}
+		if receivedHeaders.Get("Proxy-Connection") != "" {
+			t.Errorf("Proxy-Connection header should have been filtered, got: %s", receivedHeaders.Get("Proxy-Connection"))
+		}
+
+		// Verify valid headers passed through
+		if receivedHeaders.Get("Content-Type") != "application/json" {
+			t.Errorf("Content-Type header should have passed through, got: %s", receivedHeaders.Get("Content-Type"))
+		}
+		if receivedHeaders.Get("Authorization") != "Bearer token" {
+			t.Errorf("Authorization header should have passed through, got: %s", receivedHeaders.Get("Authorization"))
+		}
+		if receivedHeaders.Get("X-Custom-Header") != "custom-value" {
+			t.Errorf("X-Custom-Header should have passed through, got: %s", receivedHeaders.Get("X-Custom-Header"))
+		}
+	})
+}
+
+// TestRequestSizeLimit tests body size limits
+func TestRequestSizeLimit(t *testing.T) {
+	// Configure endpoint with small size limit
+	maxSize := int64(1024) // 1KB
+	endpoints := map[string]config.Endpoint{
+		"size-limit-test": {
+			Url:         "https://httpbin.org/post", // Use any URL since request won't reach it
+			MaxBodySize: &maxSize,
+		},
+	}
+
+	server := NewServer(":8080", endpoints)
+
+	// Create test mux
+	mux := http.NewServeMux()
+	handler := server.createProxyHandler("size-limit-test", endpoints["size-limit-test"])
+	mux.HandleFunc("/mcp/size-limit-test", handler)
+
+	testServer := httptest.NewServer(mux)
+	defer testServer.Close()
+
+	// Test with oversized payload
+	oversizedPayload := strings.Repeat("x", 2048) // 2KB
+	resp, err := http.Post(testServer.URL+"/mcp/size-limit-test", "application/json", strings.NewReader(oversizedPayload))
+	if err != nil {
+		t.Fatalf("Error making request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Should return 413 Payload Too Large
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("Expected status 413 for oversized request, got %d", resp.StatusCode)
+	}
+
+	// Test with valid payload
+	validPayload := strings.Repeat("x", 512) // 512 bytes
+	resp2, err := http.Post(testServer.URL+"/mcp/size-limit-test", "application/json", strings.NewReader(validPayload))
+	if err != nil {
+		// We expect this to fail since we're using a fake upstream URL
+		t.Logf("Expected error for request to fake upstream: %v", err)
+	} else {
+		defer resp2.Body.Close()
+		// If we get a response, it shouldn't be a 413
+		if resp2.StatusCode == http.StatusRequestEntityTooLarge {
+			t.Errorf("Unexpected 413 status for valid payload")
+		}
+	}
+}
+
+// TestContextCancellation tests that client cancellation is propagated
+func TestContextCancellation(t *testing.T) {
+	// Create mock server that delays response
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Simulate slow response
+		time.Sleep(1 * time.Second)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"success": true}`))
+	}))
+	defer mockServer.Close()
+
+	endpoints := map[string]config.Endpoint{
+		"cancel-test": {
+			Url: mockServer.URL,
+		},
+	}
+
+	server := NewServer(":8080", endpoints)
+
+	// Create test mux
+	mux := http.NewServeMux()
+	handler := server.createProxyHandler("cancel-test", endpoints["cancel-test"])
+	mux.HandleFunc("/mcp/cancel-test", handler)
+
+	testServer := httptest.NewServer(mux)
+	defer testServer.Close()
+
+	// Create request with context that will be cancelled
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", testServer.URL+"/mcp/cancel-test", strings.NewReader(`{"test": "data"}`))
+	if err != nil {
+		t.Fatalf("Error creating request: %v", err)
+	}
+
+	// Make request - should be cancelled
+	start := time.Now()
+	resp, err := http.DefaultClient.Do(req)
+	elapsed := time.Since(start)
+
+	if err == nil && resp != nil {
+		defer resp.Body.Close()
+		t.Errorf("Expected context cancellation error, got response with status %d", resp.StatusCode)
+	}
+
+	// Verify cancellation happened quickly
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("Request took too long to cancel: %v", elapsed)
+	}
+
+	if ctx.Err() == context.DeadlineExceeded {
+		t.Logf("Request cancelled as expected due to context timeout after %v", elapsed)
+	}
+}
+
+// TestHostHeaderSetting tests that Host header is set correctly
+func TestHostHeaderSetting(t *testing.T) {
+	var receivedHost string
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHost = r.Host
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"success": true}`))
+	}))
+	defer mockServer.Close()
+
+	endpoints := map[string]config.Endpoint{
+		"host-test": {
+			Url: mockServer.URL,
+		},
+	}
+
+	server := NewServer(":8080", endpoints)
+
+	// Create test mux
+	mux := http.NewServeMux()
+	handler := server.createProxyHandler("host-test", endpoints["host-test"])
+	mux.HandleFunc("/mcp/host-test", handler)
+
+	testServer := httptest.NewServer(mux)
+	defer testServer.Close()
+
+	// Make request with custom Host header
+	req, err := http.NewRequest("POST", testServer.URL+"/mcp/host-test", strings.NewReader(`{"test": "data"}`))
+	if err != nil {
+		t.Fatalf("Error creating request: %v", err)
+	}
+	req.Host = "custom.host.com"
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Error making request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	}
+
+	// Verify Host header was set to upstream URL, not from client
+	if receivedHost == "custom.host.com" {
+		t.Errorf("Host header should be based on upstream URL, not client Host")
+	}
+
+	// Parse the mock server URL to get expected host
+	if receivedHost == "" {
+		t.Errorf("Host header was not set on upstream request")
+	}
 }

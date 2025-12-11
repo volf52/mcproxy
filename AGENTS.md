@@ -1,26 +1,131 @@
-# AGENTS.md
+# CLAUDE.md
 
-## Build / Test Commands
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+mcproxy is a lightweight Go service that acts as an HTTP proxy layer, exposing dynamic POST endpoints that forward requests to configured upstream HTTP/HTTPS targets. The service loads configuration from JSON files and supports secret templating in header values using `{{ var_name }}` placeholders.
+
+## Development Commands
+
+### Build and Run
 ```bash
-go build -o mcproxy              # Build binary
-go test ./...                    # Run all tests
-go test ./... -run TestName      # Run single test by name
-go test ./pkg/config -v          # Run tests in specific package
-go vet ./...                     # Static analysis
+go build -o mcproxy              # Build the binary
+./mcproxy                        # Run the service
 ```
 
-## Code Style
-- **Formatting**: Use `gofmt` or `goimports`; no manual formatting.
-- **Imports**: Group stdlib, blank line, external deps, blank line, internal packages.
-- **Naming**: CamelCase exports, lowercase unexported; avoid stuttering (e.g., `config.Config` not `config.ConfigStruct`).
-- **Errors**: Return `error` as last value; wrap with `fmt.Errorf("context: %w", err)`.
-- **Types**: Prefer explicit types; use `any` sparingly; avoid naked `interface{}`.
-- **Logging**: Structured logs only (key-value pairs); never log secrets.
+### Testing
+```bash
+go test ./...                    # Run all tests
+go test ./... -run TestName      # Run specific test by name
+go test ./pkg/config -v          # Run tests for specific package with verbose output
+```
 
-## Project Notes
-- Config: `./config.json` (env `MCPROXY_CONFIG`); Secrets: `~/secrets.json` (env `MCPROXY_SECRETS`).
-- Templating uses `{{ var_name }}` placeholders for secrets in header values.
-- HTTP-only inbound on `:8099`; outbound supports HTTPS via stdlib TLS.
+### Code Quality
+```bash
+go vet ./...                     # Static analysis
+gofmt -w .                       # Format code (or use goimports)
+```
+
+## Configuration
+
+The service loads configuration from multiple locations in priority order:
+
+### Project-specific Configuration (highest priority):
+- **Config file**: `./.mcproxy/config.jsonc` (override with `MCPROXY_CONFIG` env var)
+- **Secrets file**: `./.mcproxy/secrets.jsonc` (override with `MCPROXY_SECRETS` env var)
+
+### Global Configuration:
+- **Config file**: `~/.config/mcproxy/config.jsonc` (XDG-compliant)
+- **Secrets file**: `~/secrets.jsonc`
+
+Both files support JSONC format (JSON with comments) and fall back to .json extensions.
+
+Default listen address: `:8099`
+
+### Configuration Options
+
+```json
+{
+  "endpoints": {
+    "my-endpoint": {
+      "url": "https://api.example.com/webhook",
+      "headers": {
+        "Authorization": "Bearer {{ API_TOKEN }}",
+        "Content-Type": "application/json"
+      },
+      "timeout": "30s",         // Optional: Per-endpoint timeout
+      "maxBodySize": 5242880    // Optional: Max request body size in bytes (5MB)
+    }
+  },
+  "globalTimeout": "60s",       // Optional: Global timeout for all endpoints
+  "globalMaxBodySize": 10485760, // Optional: Global max body size in bytes (10MB)
+  "logFile": "/var/log/mcproxy.log"
+}
+```
+
+#### Endpoint Configuration Fields:
+- **url** (required): Upstream server URL
+- **headers** (optional): Custom headers to add to requests. Supports secret templating with `{{ VAR_NAME }}`
+- **timeout** (optional): Per-endpoint timeout in duration format (e.g., "30s", "1m")
+- **maxBodySize** (optional): Maximum request body size in bytes (e.g., 5242880 for 5MB)
+
+#### Global Configuration Fields:
+- **globalTimeout** (optional): Default timeout for all endpoints (default: 60s)
+- **globalMaxBodySize** (optional): Default max body size for all endpoints (default: 10MB)
+- **logFile** (optional): Path to log file for structured logging output
+
+#### Notes:
+- Per-endpoint settings override global settings
+- Request bodies are streamed without buffering in memory
+- Hop-by-hop headers (Connection, Keep-Alive, etc.) are automatically filtered
+- Size limits return HTTP 413 Payload Too Large when exceeded
+- Timeouts return HTTP 504 Gateway Timeout
+
+## Environment Variables
+
+- **MCPROXY_CONFIG**: Path to the configuration file. Overrides default search paths (both .mcproxy/ and XDG).
+- **MCPROXY_SECRETS**: Path to the secrets file. Overrides default search paths (both .mcproxy/ and home directory).
+- **MCPROXY_PORT**: Port for the HTTP server to listen on. Supports both "8099" and ":8099" formats. Defaults to ":8099" if not set.
+
+## Architecture
+
+The service consists of several key components:
+
+### Core Components
+- **Configuration Loader**: Loads and validates JSON config and secrets files from configurable paths
+- **Template Resolver**: Substitutes `{{ var_name }}` placeholders in header values using secrets map
+- **Proxy Registry**: Registers POST handlers for each valid endpoint at `/mcp/{name}`
+- **HTTP Client**: Shared client with connection reuse, timeouts, and TLS support for HTTPS upstreams
+- **Structured Logging**: Emits logs to stdout with optional file output
+
+### Request Flow
+1. Service starts and loads config/secrets files
+2. For each valid MCP entry, registers a POST handler at `/mcp/{endpoint_name}`
+3. Incoming POST requests are forwarded to the configured upstream URL
+4. Headers are merged: incoming headers → configured headers (with secret substitution)
+5. Response (status, headers, body) is streamed back to caller
+
+### Error Handling
+- Startup fails fast if config or secrets files are missing/invalid
+- Endpoints with unresolved secret variables are skipped with warning logged
+- Service continues operating with valid endpoints even if some are skipped
+
+## Code Style Guidelines
+
+- Use `gofmt` or `goimports` for formatting (no manual formatting)
+- Group imports: stdlib, blank line, external deps, blank line, internal packages
+- Use CamelCase for exports, lowercase for unexported
+- Wrap errors with context: `fmt.Errorf("context: %w", err)`
+- Use structured logging with key-value pairs
+- Never log secret values
+
+## Project Structure Notes
+
+- Go module: `mcproxy` with Go 1.25.4 requirement
+- No external dependencies in go.mod (uses stdlib only)
+- Configuration files are gitignored for security
+- No existing Go source files yet - this is a new project setup
 
 <!-- BACKLOG.MD MCP GUIDELINES START -->
 

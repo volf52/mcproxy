@@ -5,22 +5,27 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"mcproxy/pkg/logging"
 )
 
 // Config represents the main configuration structure
 type Config struct {
-	Endpoints map[string]Endpoint `json:"endpoints"`
-	LogFile   string              `json:"logFile,omitempty"`
+	Endpoints         map[string]Endpoint `json:"endpoints"`
+	LogFile           string              `json:"logFile,omitempty"`
+	GlobalTimeout     time.Duration       `json:"globalTimeout,omitempty"`     // Global timeout for all endpoints (default: 60s)
+	GlobalMaxBodySize int64               `json:"globalMaxBodySize,omitempty"` // Global max body size in bytes (default: 10MB)
 }
 
 // Endpoint represents a single proxy endpoint configuration
 type Endpoint struct {
-	Url     string            `json:"url" description:"The upstream server url"`
-	Headers map[string]string `json:"headers,omitempty" description:"Custom headers to add to requests to the upstream server."`
-	_       struct{}          `additionalProperties:"false"`                            // Tags of unnamed field are applied to parent schema.
-	_       struct{}          `title:"MCProxy Config" description:"Config for MCProxy"` // Multiple unnamed fields can be used.
+	Url         string            `json:"url" description:"The upstream server url"`
+	Headers     map[string]string `json:"headers,omitempty" description:"Custom headers to add to requests to the upstream server."`
+	Timeout     *time.Duration    `json:"timeout,omitempty" description:"Per-endpoint timeout in seconds (overrides global timeout)."`
+	MaxBodySize *int64            `json:"maxBodySize,omitempty" description:"Maximum request body size in bytes (overrides global limit)."`
+	_           struct{}          `additionalProperties:"false"`                            // Tags of unnamed field are applied to parent schema.
+	_           struct{}          `title:"MCProxy Config" description:"Config for MCProxy"` // Multiple unnamed fields can be used.
 }
 
 // Secrets represents the secrets structure for template substitution
@@ -110,36 +115,76 @@ func validateEndpoints(endpoints map[string]Endpoint) error {
 		if endpoint.Url == "" {
 			return fmt.Errorf("upstream URL cannot be empty for endpoint '%s'", name)
 		}
+
+		// Validate timeout if specified
+		if endpoint.Timeout != nil {
+			if *endpoint.Timeout <= 0 {
+				return fmt.Errorf("timeout must be positive for endpoint '%s'", name)
+			}
+			if *endpoint.Timeout > 300*time.Second {
+				return fmt.Errorf("timeout too large (max 300s) for endpoint '%s'", name)
+			}
+		}
+
+		// Validate max body size if specified
+		if endpoint.MaxBodySize != nil {
+			if *endpoint.MaxBodySize <= 0 {
+				return fmt.Errorf("maxBodySize must be positive for endpoint '%s'", name)
+			}
+			if *endpoint.MaxBodySize > 100*1024*1024 { // 100MB
+				return fmt.Errorf("maxBodySize too large (max 100MB) for endpoint '%s'", name)
+			}
+		}
 	}
 
 	return nil
 }
 
+// setConfigDefaults sets default values for configuration
+func setConfigDefaults(config *Config) {
+	// Set global defaults
+	if config.GlobalTimeout == 0 {
+		config.GlobalTimeout = 60 * time.Second
+	}
+	if config.GlobalMaxBodySize == 0 {
+		config.GlobalMaxBodySize = 10 * 1024 * 1024 // 10MB
+	}
+}
+
 // LoadConfigWithDefaults loads configuration with backward compatibility
 // Uses hierarchical loading if available, falls back to original behavior
 func LoadConfigWithDefaults() (*Config, Secrets, error) {
+	var config *Config
+	var secrets Secrets
+
 	// Try hierarchical loading first
 	result, err := LoadConfigHierarchical()
 	if err != nil {
 		// Fall back to original behavior if hierarchical loading fails
 		logging.Printf("Warning: Hierarchical loading failed, falling back to single file loading: %v", err)
-		cfg, err := LoadConfig()
+		config, err = LoadConfig()
 		if err != nil {
 			return nil, nil, err
 		}
-		secrets, err := LoadSecrets()
+		secrets, err = LoadSecrets()
 		if err != nil {
 			return nil, nil, err
 		}
-		return cfg, secrets, nil
+	} else {
+		// Use hierarchical loading result
+		config = result.Config
+		secrets = result.Secrets
+
+		// Validate merged configuration
+		if err := validateMergedConfig(config); err != nil {
+			return nil, nil, fmt.Errorf("invalid merged configuration: %w", err)
+		}
 	}
 
-	// Validate merged configuration
-	if err := validateMergedConfig(result.Config); err != nil {
-		return nil, nil, fmt.Errorf("invalid merged configuration: %w", err)
-	}
+	// Apply default values
+	setConfigDefaults(config)
 
-	return result.Config, result.Secrets, nil
+	return config, secrets, nil
 }
 
 // ProcessSecretTemplates processes all endpoint headers with secret templating
