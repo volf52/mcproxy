@@ -49,7 +49,8 @@ Default listen address: `:8099`
 ```json
 {
   "endpoints": {
-    "my-endpoint": {
+    "http-endpoint": {
+      "type": "http",
       "url": "https://api.example.com/webhook",
       "headers": {
         "Authorization": "Bearer {{ API_TOKEN }}",
@@ -57,6 +58,17 @@ Default listen address: `:8099`
       },
       "timeout": "30s",         // Optional: Per-endpoint timeout
       "maxBodySize": 5242880    // Optional: Max request body size in bytes (5MB)
+    },
+    "stdio-endpoint": {
+      "type": "stdio",
+      "command": ["/usr/local/bin/mcp-server", "--option", "value"],
+      "env": {
+        "API_KEY": "{{ API_TOKEN }}",
+        "LOG_LEVEL": "debug"
+      },
+      "args": ["init-arg-1"],   // Optional: Arguments passed to MCP during initialization
+      "timeout": "30s",
+      "maxBodySize": 5242880
     }
   },
   "globalTimeout": "60s",       // Optional: Global timeout for all endpoints
@@ -71,12 +83,41 @@ Default listen address: `:8099`
 }
 ```
 
-#### Endpoint Configuration Fields
+#### Endpoint Types
 
+mcproxy supports two endpoint types:
+
+##### HTTP Endpoints (type: "http")
+
+Forwards HTTP requests to an upstream HTTP/HTTPS server.
+
+**Fields:**
+
+- **type** (optional): Set to "http" (default if not specified)
 - **url** (required): Upstream server URL
 - **headers** (optional): Custom headers to add to requests. Supports secret templating with `{{ VAR_NAME }}`
 - **timeout** (optional): Per-endpoint timeout in duration format (e.g., "30s", "1m")
 - **maxBodySize** (optional): Maximum request body size in bytes (e.g., 5242880 for 5MB)
+
+##### Stdio MCP Endpoints (type: "stdio")
+
+Starts a local MCP server process and translates HTTP requests to JSON-RPC calls.
+
+**Fields:**
+
+- **type** (required): Must be "stdio"
+- **command** (required): Command and arguments to execute
+- **env** (optional): Environment variables (supports secret templating)
+- **args** (optional): Initialization arguments for MCP connection
+- **headers** (optional): HTTP headers to add/override
+- **timeout** (optional): Per-endpoint timeout
+- **maxBodySize** (optional): Maximum request body size
+
+**Common fields for both types:**
+
+- **timeout** (optional): Per-endpoint timeout in duration format (e.g., "30s", "1m")
+- **maxBodySize** (optional): Maximum request body size in bytes (e.g., 5242880 for 5MB)
+- **headers** (optional): Custom headers (supports secret templating)
 
 #### Global Configuration Fields
 

@@ -23,7 +23,7 @@ func TestHTTPClientRedirects(t *testing.T) {
 	defer redirectServer.Close()
 
 	// Use our HTTP client directly
-	client := createHTTPClient()
+	client := CreateHTTPClient()
 
 	// Make request directly to the redirect server
 	req, err := http.NewRequest("POST", redirectServer.URL, strings.NewReader(`{"test": "data"}`))
@@ -177,7 +177,7 @@ func TestHTTPClientHTTPS(t *testing.T) {
 
 // TestHTTPClientConnectionPooling tests connection pooling settings
 func TestHTTPClientConnectionPooling(t *testing.T) {
-	client := createHTTPClient()
+	client := CreateHTTPClient()
 	transport := client.Transport.(*http.Transport)
 
 	// Verify connection pooling settings

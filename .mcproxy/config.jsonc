@@ -1,0 +1,37 @@
+{
+  // Example configuration with both HTTP and stdio endpoints
+  "endpoints": {
+    // HTTP endpoint (existing functionality)
+    "httpbin": {
+      "type": "http",
+      "url": "https://httpbin.org/post",
+      "headers": {
+        "Content-Type": "application/json",
+        "User-Agent": "mcproxy/1.0"
+      }
+    },
+
+    // Example stdio MCP endpoint (requires an MCP server executable)
+    "filesystem": {
+      "type": "stdio",
+      "command": ["/usr/local/bin/mcp-filesystem-server", "/tmp/shared"],
+      "env": {
+        "LOG_LEVEL": "debug"
+      },
+      "args": ["--read-only"],
+      "headers": {
+        "X-MCP-Endpoint": "filesystem"
+      }
+    }
+  },
+
+  "globalTimeout": "60s",
+  "globalMaxBodySize": 10485760,
+
+  "server": {
+    "readTimeout": 30,
+    "writeTimeout": 30,
+    "idleTimeout": 120,
+    "shutdownTimeout": 30
+  }
+}

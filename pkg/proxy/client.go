@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// createHTTPClient creates a shared HTTP client with proper timeouts and TLS support
-func createHTTPClient() *http.Client {
+// CreateHTTPClient creates a shared HTTP client with proper timeouts and TLS support
+func CreateHTTPClient() *http.Client {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: false, // Secure by default

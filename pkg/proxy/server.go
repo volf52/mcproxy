@@ -142,7 +142,7 @@ func NewServer(port string, endpoints map[string]config.Endpoint, serverConfig c
 		port:           port,
 		endpoints:      endpoints,
 		serverConfig:   serverConfig,
-		httpClient:     createHTTPClient(),
+		httpClient:     CreateHTTPClient(),
 		shutdownCtx:    shutdownCtx,
 		shutdownCancel: shutdownCancel,
 		isShuttingDown: atomicBool{},

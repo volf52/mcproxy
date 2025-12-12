@@ -29,9 +29,21 @@ type Config struct {
 	Server            ServerConfig        `json:"server,omitempty"`            // Server configuration for timeouts and shutdown
 }
 
+// EndpointType represents the type of endpoint (HTTP or stdio)
+type EndpointType string
+
+const (
+	EndpointTypeHTTP  EndpointType = "http"
+	EndpointTypeStdio EndpointType = "stdio"
+)
+
 // Endpoint represents a single proxy endpoint configuration
 type Endpoint struct {
-	Url         string            `json:"url" description:"The upstream server url"`
+	Type        EndpointType      `json:"type,omitempty" description:"Endpoint type: 'http' for HTTP upstream or 'stdio' for MCP stdio process (default: 'http')"`
+	Url         string            `json:"url,omitempty" description:"The upstream server url (required for http type)"`
+	Command     []string          `json:"command,omitempty" description:"Command and arguments to execute for stdio endpoints"`
+	Env         map[string]string `json:"env,omitempty" description:"Environment variables to set for the stdio process"`
+	Args        []string          `json:"args,omitempty" description:"Arguments to pass to the MCP stdio endpoint during initialization"`
 	Headers     map[string]string `json:"headers,omitempty" description:"Custom headers to add to requests to the upstream server."`
 	Timeout     *time.Duration    `json:"timeout,omitempty" description:"Per-endpoint timeout in seconds (overrides global timeout)."`
 	MaxBodySize *int64            `json:"maxBodySize,omitempty" description:"Maximum request body size in bytes (overrides global limit)."`
@@ -233,12 +245,79 @@ func validateEndpoints(endpoints map[string]Endpoint) error {
 		}
 		lowercaseNames[lowerName] = name
 
-		// Validate URL
-		if err := isValidURL(endpoint.Url); err != nil {
-			errors.add(fmt.Sprintf("endpoint[%s].url", name), err.Error())
+		// Set default type if not specified
+		endpointType := endpoint.Type
+		if endpointType == "" {
+			endpointType = EndpointTypeHTTP
 		}
 
-		// Validate headers
+		// Validate based on endpoint type
+		switch endpointType {
+		case EndpointTypeHTTP:
+			// HTTP endpoints require a URL
+			if endpoint.Url == "" {
+				errors.add(fmt.Sprintf("endpoint[%s].url", name), "url is required for HTTP endpoints")
+			} else if err := isValidURL(endpoint.Url); err != nil {
+				errors.add(fmt.Sprintf("endpoint[%s].url", name), err.Error())
+			}
+
+			// HTTP endpoints should not have command or env
+			if len(endpoint.Command) > 0 {
+				errors.add(fmt.Sprintf("endpoint[%s].command", name), "command is not allowed for HTTP endpoints")
+			}
+			if len(endpoint.Env) > 0 {
+				errors.add(fmt.Sprintf("endpoint[%s].env", name), "env is not allowed for HTTP endpoints")
+			}
+			if len(endpoint.Args) > 0 {
+				errors.add(fmt.Sprintf("endpoint[%s].args", name), "args is not allowed for HTTP endpoints")
+			}
+
+		case EndpointTypeStdio:
+			// stdio endpoints require a command
+			if len(endpoint.Command) == 0 {
+				errors.add(fmt.Sprintf("endpoint[%s].command", name), "command is required for stdio endpoints")
+			} else {
+				// Validate command components
+				for i, cmdPart := range endpoint.Command {
+					if cmdPart == "" {
+						errors.add(fmt.Sprintf("endpoint[%s].command[%d]", name, i), "command component cannot be empty")
+					}
+					if strings.ContainsAny(cmdPart, "\r\n\t") {
+						errors.add(fmt.Sprintf("endpoint[%s].command[%d]", name, i), "command component contains invalid characters")
+					}
+				}
+			}
+
+			// stdio endpoints should not have a URL
+			if endpoint.Url != "" {
+				errors.add(fmt.Sprintf("endpoint[%s].url", name), "url is not allowed for stdio endpoints")
+			}
+
+			// Validate environment variables
+			for key, value := range endpoint.Env {
+				if key == "" {
+					errors.add(fmt.Sprintf("endpoint[%s].env", name), "environment variable key cannot be empty")
+				}
+				if strings.ContainsAny(key, "\x00\r\n") {
+					errors.add(fmt.Sprintf("endpoint[%s].env[%s]", name, key), "environment variable key contains invalid characters")
+				}
+				if strings.ContainsAny(value, "\x00\r\n") {
+					errors.add(fmt.Sprintf("endpoint[%s].env[%s]", name, key), "environment variable value contains invalid characters")
+				}
+			}
+
+			// Validate args
+			for i, arg := range endpoint.Args {
+				if arg == "" {
+					errors.add(fmt.Sprintf("endpoint[%s].args[%d]", name, i), "arg cannot be empty")
+				}
+			}
+
+		default:
+			errors.add(fmt.Sprintf("endpoint[%s].type", name), fmt.Sprintf("invalid endpoint type '%s', must be 'http' or 'stdio'", endpointType))
+		}
+
+		// Validate headers (common to both types)
 		for key, value := range endpoint.Headers {
 			if err := isValidHeaderKey(key); err != nil {
 				errors.add(fmt.Sprintf("endpoint[%s].headers[%s]", name, key), err.Error())
