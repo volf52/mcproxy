@@ -7,6 +7,24 @@ import (
 	"testing"
 )
 
+// Helper function for substring matching in tests
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > len(substr) &&
+			(s[:len(substr)] == substr ||
+				s[len(s)-len(substr):] == substr ||
+				containsMiddle(s, substr))))
+}
+
+func containsMiddle(s, substr string) bool {
+	for i := 1; i < len(s)-len(substr)+1; i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
 func TestLoadConfig(t *testing.T) {
 	// Create temporary config file
 	tmpDir := t.TempDir()
@@ -1456,6 +1474,32 @@ func TestUnmarshalWithAutoDetection_BackwardCompatibility(t *testing.T) {
 
 	if len(config.Endpoints) != 1 {
 		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
+	}
+}
+
+func TestLoadConfigWithDefaults_ExclusiveModeErrorHandling(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Save original environment variables
+	originalConfig := os.Getenv("MCPROXY_CONFIG")
+	originalSecrets := os.Getenv("MCPROXY_SECRETS")
+
+	defer func() {
+		os.Setenv("MCPROXY_CONFIG", originalConfig)
+		os.Setenv("MCPROXY_SECRETS", originalSecrets)
+	}()
+
+	// Test with invalid config file via environment variable
+	configPath := filepath.Join(tmpDir, "invalid.json")
+	os.WriteFile(configPath, []byte("{ invalid json"), 0644)
+	os.Setenv("MCPROXY_CONFIG", configPath)
+
+	_, _, err := LoadConfigWithDefaults()
+	if err == nil {
+		t.Error("Expected error for invalid config file in exclusive mode")
+	}
+	if !contains(err.Error(), "failed to load exclusive config") {
+		t.Errorf("Expected config error, got: %v", err)
 	}
 }
 

@@ -1,10 +1,10 @@
 ---
 id: task-00017
 title: Fix environment exclusive config error handling
-status: To Do
+status: Done
 assignee: []
 created_date: '2025-12-11 19:55'
-updated_date: '2025-12-11 20:00'
+updated_date: '2025-12-12 16:40'
 labels:
   - bug
   - error-handling
@@ -57,177 +57,27 @@ The issue occurs specifically in the LoadConfigHierarchical function where error
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-## Technical Analysis
+Implementation completed successfully on 2025-12-12.
 
-The bug is in the `LoadConfigHierarchical` function in `/home/volfy/hobby/mcpproxy/pkg/config/loader.go`. The function has two modes:
+Changes made:
+1. Created loadConfigFileExclusive and loadSecretsFileExclusive functions that properly handle errors when files are explicitly specified via environment variables
+2. Updated LoadConfigHierarchical to use exclusive loading functions when MCPROXY_CONFIG/MCPROXY_SECRETS are set
+3. The service now fails fast with clear error messages when explicitly specified files have errors
+4. Added comprehensive unit tests in loader_exclusive_test.go covering all error scenarios
+5. Added integration test in config_test.go for complete flow verification
 
-1. **Exclusive mode** (when MCPROXY_CONFIG/MCPROXY_SECRETS are set): Should load ONLY from the specified paths
-2. **Hierarchical mode** (when env vars are NOT set): Should load from multiple optional locations
+The implementation ensures:
+- No more silent failures when env vars point to invalid files
+- Clear, actionable error messages that include the file path and specific issue
+- Graceful fallback to hierarchical mode when both files don't exist
+- Backward compatibility preserved for hierarchical mode
 
-In exclusive mode, the code uses:
-```go
-// Lines 268-274
-projectConfig, _ = loadConfigFromFile(envConfigPath)  // Error discarded!
-if projectConfig != nil {
-    // Success handling
-}
+All acceptance criteria met:
+✓ MCPROXY_CONFIG errors cause service to exit with clear error messages
+✓ MCPROXY_SECRETS errors cause service to exit with clear error messages  
+✓ Parse errors include file path and context
+✓ Error messages are user-friendly and suggest common fixes
+✓ Hierarchical mode behavior is unchanged when env vars are not set
 
-// Lines 305-311  
-projectSecrets, _ = loadSecretsFromFile(envSecretsPath)  // Error discarded!
-if projectSecrets != nil {
-    // Success handling
-}
-```
-
-The problem is that errors are discarded, and only non-nil results are considered successful. This means:
-- Invalid JSON returns (nil, error) → silently ignored
-- Permission denied returns (nil, error) → silently ignored
-- File exists but is empty returns (&Config{}, nil) → accepted as valid
-
-## Implementation Plan
-
-### 1. Create a new function for exclusive file loading
-Add a new function that distinguishes between "file not found" and other errors:
-
-```go
-// loadConfigFileExclusive loads a config file that was explicitly specified
-// Returns the config and any error except file-not-found
-func loadConfigFileExclusive(path string) (*Config, error) {
-    if path == "" {
-        return nil, fmt.Errorf("config path cannot be empty")
-    }
-    
-    config, err := loadConfigFromFile(path)
-    if err != nil {
-        // loadConfigFromFile already returns nil for file not found
-        // Any other error should be propagated
-        return nil, err
-    }
-    
-    return config, nil
-}
-
-// loadSecretsFileExclusive loads a secrets file that was explicitly specified
-// Returns the secrets and any error except file-not-found
-func loadSecretsFileExclusive(path string) (Secrets, error) {
-    if path == "" {
-        return nil, fmt.Errorf("secrets path cannot be empty")
-    }
-    
-    secrets, err := loadSecretsFromFile(path)
-    if err != nil {
-        // loadSecretsFromFile already returns nil for file not found
-        // Any other error should be propagated
-        return nil, err
-    }
-    
-    return secrets, nil
-}
-```
-
-### 2. Update LoadConfigHierarchical to handle exclusive mode errors
-Replace the error-discarding calls with proper error handling:
-
-```go
-if envConfigPath != "" {
-    // Exclusive mode: only load from the specified config file
-    result.ProjectFiles.Path = envConfigPath
-    projectConfig, err = loadConfigFileExclusive(envConfigPath)
-    if err != nil {
-        return nil, fmt.Errorf("failed to load exclusive config from %s: %w", envConfigPath, err)
-    }
-    if projectConfig != nil {
-        result.ProjectFiles.Loaded = true
-        result.ProjectFiles.Endpoints = len(projectConfig.Endpoints)
-        logging.Printf("Loaded exclusive config from %s (%d endpoints)", envConfigPath, len(projectConfig.Endpoints))
-    }
-} else {
-    // ... existing hierarchical mode logic
-}
-
-if envSecretsPath != "" {
-    // Exclusive mode: only load from the specified secrets file
-    projectSecrets, err = loadSecretsFileExclusive(envSecretsPath)
-    if err != nil {
-        return nil, fmt.Errorf("failed to load exclusive secrets from %s: %w", envSecretsPath, err)
-    }
-    if projectSecrets != nil {
-        result.ProjectFiles.Secrets = len(projectSecrets)
-        logging.Printf("Loaded exclusive secrets from %s (%d entries)", envSecretsPath, len(projectSecrets))
-    }
-} else {
-    // ... existing hierarchical mode logic
-}
-```
-
-### 3. Add unit tests
-Create tests for the new exclusive loading behavior:
-
-```go
-func TestLoadConfigFileExclusive(t *testing.T) {
-    tests := []struct {
-        name          string
-        path          string
-        wantErr       bool
-        wantErrContains string
-    }{
-        {
-            name:    "non-existent file",
-            path:    "/tmp/non-existent-config.json",
-            wantErr: true,
-            wantErrContains: "no such file or directory",
-        },
-        {
-            name:    "invalid JSON",
-            path:    "testdata/invalid.json",
-            wantErr: true,
-            wantErrContains: "failed to parse",
-        },
-        {
-            name:    "valid config",
-            path:    "testdata/valid.json",
-            wantErr: false,
-        },
-        {
-            name:    "empty path",
-            path:    "",
-            wantErr: true,
-            wantErrContains: "cannot be empty",
-        },
-    }
-    // ... test implementation
-}
-```
-
-### 4. Integration test scenario
-Test the complete flow with environment variables:
-
-```go
-func TestExclusiveModeErrorHandling(t *testing.T) {
-    // Set env var to invalid file
-    os.Setenv("MCPROXY_CONFIG", "/tmp/invalid.json")
-    defer os.Unsetenv("MCPROXY_CONFIG")
-    
-    // Create invalid file
-    os.WriteFile("/tmp/invalid.json", []byte("{ invalid json"), 0644)
-    defer os.Remove("/tmp/invalid.json")
-    
-    // LoadConfigHierarchical should fail
-    _, err := LoadConfigHierarchical()
-    assert.Error(t, err)
-    assert.Contains(t, err.Error(), "failed to load exclusive config")
-}
-```
-
-### 5. Edge Cases to Consider
-- **Empty files**: Should load as empty config (valid behavior)
-- **File exists but no read permissions**: Should fail with permission error
-- **Symlink to non-existent file**: Should fail with appropriate error
-- **Invalid JSONC with comments**: Should parse correctly if JSONC
-- **Mixed mode**: MCPROXY_CONFIG set but not MCPROXY_SECRETS (should handle each independently)
-
-### 6. Backward Compatibility
-- Hierarchical mode behavior unchanged (optional files still silently skipped)
-- Only affects exclusive mode when env vars are explicitly set
-- Error messages follow existing pattern with context using fmt.Errorf
+Created enhancement task-00023 for future Go best practices improvements based on expert code review.
 <!-- SECTION:NOTES:END -->

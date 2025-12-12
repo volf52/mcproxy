@@ -1,10 +1,10 @@
 ---
 id: task-00016
 title: Add server timeouts and graceful shutdown
-status: To Do
+status: Done
 assignee: []
 created_date: '2025-12-11 19:55'
-updated_date: '2025-12-11 19:59'
+updated_date: '2025-12-12 14:26'
 labels:
   - bug
   - security
@@ -321,4 +321,16 @@ Update CLAUDE.md to include new environment variables and configuration options:
 4. **Context Usage**: Use context throughout for proper cancellation and timeout handling
 5. **Error Handling**: Log shutdown progress and errors appropriately
 6. **Backwards Compatibility**: Ensure existing configurations continue to work
+
+Implementation completed in commit 252039e1 - Added server timeouts and graceful shutdown with comprehensive tests
+
+ServerConfig added with Read/Write/Idle/Shutdown timeout fields
+
+NewServer updated to accept server config
+
+Added StartWithShutdown method for graceful shutdown
+
+Environment variable override support added (MCPROXY_READ_TIMEOUT, etc.)
+
+Comprehensive test suite created in server_shutdown_test.go
 <!-- SECTION:NOTES:END -->
