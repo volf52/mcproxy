@@ -122,7 +122,7 @@ func TestNormalizePort(t *testing.T) {
 		{
 			name:        "port with leading zeros and colon",
 			input:       ":0080",
-			expected:    ":0080",
+			expected:    ":80",
 			expectError: false,
 		},
 		{
@@ -152,14 +152,20 @@ func TestNormalizePort(t *testing.T) {
 		{
 			name:        "whitespace only",
 			input:       "   ",
-			expected:    "",
-			expectError: true,
+			expected:    ":8099",
+			expectError: false,
 		},
 		{
 			name:        "whitespace around port",
 			input:       " 8080 ",
-			expected:    "",
-			expectError: true,
+			expected:    ":8080",
+			expectError: false,
+		},
+		{
+			name:        "whitespace around port with colon",
+			input:       " :8080 ",
+			expected:    ":8080",
+			expectError: false,
 		},
 		{
 			name:        "port with text mixed",
@@ -178,6 +184,18 @@ func TestNormalizePort(t *testing.T) {
 			input:       ":8080:9090",
 			expected:    "",
 			expectError: true,
+		},
+		{
+			name:        "port with tab and newline",
+			input:       "\t8080\n",
+			expected:    ":8080",
+			expectError: false,
+		},
+		{
+			name:        "port with leading zeros and whitespace",
+			input:       " 0080 ",
+			expected:    ":80",
+			expectError: false,
 		},
 	}
 

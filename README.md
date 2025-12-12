@@ -3,12 +3,14 @@
 A lightweight Go service that publishes dynamic HTTP POST endpoints and proxies them to configured upstream HTTP/HTTPS targets. Configuration and secrets are JSON-based; header values can reference secrets using `{{ var_name }}` placeholders.
 
 ## Quick Start
+
 - Prerequisites: Go 1.21+.
 - Defaults (auto-detection prioritizes JSONC):
   - Config file: `~/.config/mcproxy/config.jsonc` → `~/.config/mcproxy/config.json` → `./config.jsonc` → `./config.json` (override with env `MCPROXY_CONFIG`).
   - Secrets file: `~/secrets.jsonc` → `~/secrets.json` (override with env `MCPROXY_SECRETS`).
   - Listen address: `:8099`.
 - Build and run:
+
 ```bash
 go build -o mcproxy
 ./mcproxy
@@ -38,6 +40,7 @@ The project includes a dynamically generated JSON Schema (`config.schema.json`) 
 - **Documentation**: Self-documenting configuration structure
 
 Generate schema:
+
 ```bash
 ./scripts/generate-schema.sh
 # or
@@ -47,6 +50,7 @@ go run cmd/generate-schema/main.go
 ### Secrets (`~/secrets.jsonc` by default)
 
 **JSONC format (recommended) - `~/secrets.jsonc`:**
+
 ```jsonc
 {
   // API authentication token for billing service
@@ -62,6 +66,7 @@ go run cmd/generate-schema/main.go
 ```
 
 **JSON format - `~/secrets.json`:**
+
 ```json
 {
   "api_token": "super-secret-token",
@@ -73,6 +78,7 @@ go run cmd/generate-schema/main.go
 ### Config (`~/.config/mcproxy/config.jsonc` by default)
 
 **JSONC format (recommended) - `~/.config/mcproxy/config.jsonc`:**
+
 ```jsonc
 {
   // Use JSON Schema for validation and IDE autocomplete
@@ -104,6 +110,7 @@ go run cmd/generate-schema/main.go
 ```
 
 **JSON format - `~/.config/mcproxy/config.json` or `./config.json` for backward compatibility:**
+
 ```json
 {
   "$schema": "./config.schema.json",
@@ -137,6 +144,7 @@ go run cmd/generate-schema/main.go
 ## Usage Examples
 
 ### Accessing Endpoints
+
 ```bash
 # Proxy requests to configured endpoints
 curl -X POST http://localhost:8099/mcp/billing \
@@ -153,15 +161,19 @@ curl http://localhost:8099/
 ```
 
 ### Migration from Previous Versions
+
 If you're upgrading from a version before 1.1.0, you need to update your endpoint URLs:
+
 - Old: `POST http://localhost:8099/billing`
 - New: `POST http://localhost:8099/mcp/billing`
 
 ### HTTP Methods
+
 - **POST**: Forward request to upstream service
 - **GET/PUT/DELETE/PATCH**: Returns `405 Method Not Allowed`
 
 ### Error Responses
+
 - **404 Not Found**: Endpoint does not exist
 - **405 Method Not Allowed**: HTTP method not supported
 - **500 Internal Server Error**: Error creating upstream request
@@ -170,6 +182,7 @@ If you're upgrading from a version before 1.1.0, you need to update your endpoin
 ## Development
 
 ### Build and Run
+
 ```bash
 go build -o mcproxy              # Build the binary
 ./mcproxy                        # Run the service
@@ -177,6 +190,7 @@ go run ./cmd/mcproxy             # Run without building
 ```
 
 ### Testing
+
 ```bash
 go test ./...                    # Run all tests
 go test ./... -run TestName      # Run specific test by name
@@ -185,6 +199,7 @@ go test -race -coverprofile=coverage.out ./...  # Run with race detection and co
 ```
 
 ### Code Quality
+
 ```bash
 go vet ./...                     # Static analysis
 gofmt -s -w .                    # Format code
@@ -194,6 +209,7 @@ go mod tidy                       # Clean up dependencies
 ```
 
 ### Schema Generation
+
 ```bash
 ./scripts/generate-schema.sh     # Generate JSON Schema from Go structs
 go run cmd/generate-schema/main.go  # Direct schema generation
@@ -204,11 +220,14 @@ go run cmd/generate-schema/main.go  # Direct schema generation
 The project includes GitHub Actions for automated checks:
 
 ### CI Workflow (`.github/workflows/ci.yml`)
+
 Runs automatically on:
+
 - Push to `main` or `dev` branches
 - Manual trigger from GitHub Actions UI
 
 **Checks performed:**
+
 - Code formatting with `gofmt`
 - Static analysis with `go vet`
 - Unit tests with race detection
@@ -216,13 +235,16 @@ Runs automatically on:
 - JSON Schema generation and auto-commit if changed
 
 ### Update Schema Workflow (`.github/workflows/update-schema.yml`)
+
 Manual workflow to update JSON Schema:
+
 - Can be triggered from GitHub Actions tab
 - Option to control whether to commit changes
 - Shows diff of schema changes
 - Generates summary of updates
 
 **Auto-commit behavior:**
+
 - Only commits schema changes on pushes (not PRs)
 - Uses conventional commit format with emoji
 - Includes attribution and timestamp
@@ -237,5 +259,6 @@ Manual workflow to update JSON Schema:
 - **Logging**: Structured logs to stdout; optional file output when `logFile` is configured
 
 ## Docs
+
 - Project description: `docs/project-description.md`
 - Product requirements: `docs/prd.md`

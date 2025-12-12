@@ -1,10 +1,10 @@
 ---
 id: task-00019
 title: Make port normalization robust
-status: To Do
+status: Done
 assignee: []
 created_date: '2025-12-11 19:55'
-updated_date: '2025-12-11 22:13'
+updated_date: '2025-12-12 19:48'
 labels:
   - bug
   - config
@@ -299,4 +299,14 @@ Update function comment:
 ### Future Improvements
 - Consider adding integration tests for environment variable scenarios
 - Document behavior for users who might set MCPROXY_PORT with whitespace
+
+Task completed successfully.
+
+Added whitespace trimming and canonical port normalization
+
+Handles edge cases like tabs, newlines, and whitespace
+
+Improved error messages with trimmed input display
+
+Code reviewed and tests passing
 <!-- SECTION:NOTES:END -->

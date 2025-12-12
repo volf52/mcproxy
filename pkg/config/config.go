@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -112,39 +113,164 @@ func LoadSecrets() (Secrets, error) {
 	return secrets, nil
 }
 
-// validateEndpoints validates the endpoints configuration
+// validationError represents a single validation error
+type validationError struct {
+	field   string
+	message string
+}
+
+// validationErrors is a collection of validation errors
+type validationErrors []validationError
+
+// Error implements the error interface
+func (ve validationErrors) Error() string {
+	if len(ve) == 0 {
+		return ""
+	}
+	if len(ve) == 1 {
+		return ve[0].message
+	}
+
+	var messages []string
+	for _, err := range ve {
+		messages = append(messages, err.message)
+	}
+	return fmt.Sprintf("validation failed with %d errors:\n  %s", len(messages), strings.Join(messages, "\n  "))
+}
+
+// add adds a new validation error
+func (ve *validationErrors) add(field, message string) {
+	*ve = append(*ve, validationError{field: field, message: message})
+}
+
+// isValidURL checks if a URL is valid and uses HTTP/HTTPS scheme
+func isValidURL(rawURL string) error {
+	if rawURL == "" {
+		return fmt.Errorf("URL cannot be empty")
+	}
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL format: %w", err)
+	}
+
+	// Check scheme
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("URL must use http or https scheme, got '%s'", parsed.Scheme)
+	}
+
+	// Check host
+	if parsed.Host == "" {
+		return fmt.Errorf("URL must have a host")
+	}
+
+	// Reject fragments
+	if parsed.Fragment != "" {
+		return fmt.Errorf("URL fragments are not allowed")
+	}
+
+	return nil
+}
+
+// isValidHeaderKey checks if a header key is valid according to RFC 7230
+func isValidHeaderKey(key string) error {
+	if key == "" {
+		return fmt.Errorf("header key cannot be empty")
+	}
+
+	// Header keys should not contain control characters, spaces, or tabs
+	for _, r := range key {
+		if r < 33 || r > 126 {
+			return fmt.Errorf("header key contains invalid character: %q", r)
+		}
+		if r == ':' {
+			return fmt.Errorf("header key cannot contain colon character")
+		}
+	}
+
+	return nil
+}
+
+// isValidHeaderValue checks if a header value is valid according to RFC 7230
+func isValidHeaderValue(value string) error {
+	// Header values should not contain control characters except for tab
+	for _, r := range value {
+		// Check for line breaks first
+		if r == '\r' || r == '\n' {
+			return fmt.Errorf("header value cannot contain line breaks")
+		}
+		// Check for other control characters
+		if r < ' ' && r != '\t' {
+			return fmt.Errorf("header value contains invalid control character")
+		}
+	}
+
+	return nil
+}
+
+// validateEndpoints validates the endpoints configuration with comprehensive checks
 func validateEndpoints(endpoints map[string]Endpoint) error {
+	var errors validationErrors
+
 	if len(endpoints) == 0 {
 		return fmt.Errorf("at least one endpoint must be defined")
 	}
 
+	// Track case-insensitive endpoint names to detect collisions
+	lowercaseNames := make(map[string]string)
+
 	for name, endpoint := range endpoints {
 		if name == "" {
-			return fmt.Errorf("endpoint name cannot be empty")
+			errors.add("name", "endpoint name cannot be empty")
+			continue
 		}
-		if endpoint.Url == "" {
-			return fmt.Errorf("upstream URL cannot be empty for endpoint '%s'", name)
+
+		// Check for case-insensitive name collisions
+		lowerName := strings.ToLower(name)
+		if existing, exists := lowercaseNames[lowerName]; exists {
+			errors.add("name", fmt.Sprintf("endpoint name '%s' conflicts with endpoint '%s' (names are case-insensitive)", name, existing))
+			continue
+		}
+		lowercaseNames[lowerName] = name
+
+		// Validate URL
+		if err := isValidURL(endpoint.Url); err != nil {
+			errors.add(fmt.Sprintf("endpoint[%s].url", name), err.Error())
+		}
+
+		// Validate headers
+		for key, value := range endpoint.Headers {
+			if err := isValidHeaderKey(key); err != nil {
+				errors.add(fmt.Sprintf("endpoint[%s].headers[%s]", name, key), err.Error())
+			}
+			if err := isValidHeaderValue(value); err != nil {
+				errors.add(fmt.Sprintf("endpoint[%s].headers[%s]", name, key), err.Error())
+			}
 		}
 
 		// Validate timeout if specified
 		if endpoint.Timeout != nil {
 			if *endpoint.Timeout <= 0 {
-				return fmt.Errorf("timeout must be positive for endpoint '%s'", name)
+				errors.add(fmt.Sprintf("endpoint[%s].timeout", name), "timeout must be positive")
 			}
 			if *endpoint.Timeout > 300*time.Second {
-				return fmt.Errorf("timeout too large (max 300s) for endpoint '%s'", name)
+				errors.add(fmt.Sprintf("endpoint[%s].timeout", name), "timeout too large (max 300s)")
 			}
 		}
 
 		// Validate max body size if specified
 		if endpoint.MaxBodySize != nil {
 			if *endpoint.MaxBodySize <= 0 {
-				return fmt.Errorf("maxBodySize must be positive for endpoint '%s'", name)
+				errors.add(fmt.Sprintf("endpoint[%s].maxBodySize", name), "maxBodySize must be positive")
 			}
 			if *endpoint.MaxBodySize > 100*1024*1024 { // 100MB
-				return fmt.Errorf("maxBodySize too large (max 100MB) for endpoint '%s'", name)
+				errors.add(fmt.Sprintf("endpoint[%s].maxBodySize", name), "maxBodySize too large (max 100MB)")
 			}
 		}
+	}
+
+	if len(errors) > 0 {
+		return errors
 	}
 
 	return nil

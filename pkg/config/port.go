@@ -9,25 +9,29 @@ import (
 // NormalizePort validates and normalizes a port string to the format ":port".
 // It accepts both "8099" and ":8099" formats and returns ":8099" in both cases.
 // Empty string returns the default port ":8099".
+// Whitespace is trimmed from input. Always normalizes to canonical format.
 func NormalizePort(portStr string) (string, error) {
-	if portStr == "" {
+	// Trim whitespace from input
+	trimmed := strings.TrimSpace(portStr)
+
+	if trimmed == "" {
 		return ":8099", nil
 	}
 
-	if strings.HasPrefix(portStr, ":") {
-		portNum := strings.TrimPrefix(portStr, ":")
-		if err := validatePortNumber(portNum); err != nil {
-			return "", fmt.Errorf("invalid port format '%s': %w", portStr, err)
-		}
-		return portStr, nil
-	}
+	// Remove leading colon if present
+	portNum := strings.TrimPrefix(trimmed, ":")
 
-	if err := validatePortNumber(portStr); err != nil {
-		return "", fmt.Errorf("invalid port format '%s': %w", portStr, err)
+	// Validate the port number
+	if err := validatePortNumber(portNum); err != nil {
+		// Show the trimmed input in error for clarity
+		if trimmed != portStr {
+			return "", fmt.Errorf("invalid port format '%s' (trimmed from '%q'): %w", trimmed, portStr, err)
+		}
+		return "", fmt.Errorf("invalid port format '%s': %w", trimmed, err)
 	}
 
 	// Convert to int and back to string to normalize (e.g., "0080" -> "80")
-	port, _ := strconv.Atoi(portStr)
+	port, _ := strconv.Atoi(portNum)
 	return ":" + strconv.Itoa(port), nil
 }
 

@@ -9,12 +9,14 @@ mcproxy is a lightweight Go service that acts as an HTTP proxy layer, exposing d
 ## Development Commands
 
 ### Build and Run
+
 ```bash
 go build -o mcproxy              # Build the binary
 ./mcproxy                        # Run the service
 ```
 
 ### Testing
+
 ```bash
 go test ./...                    # Run all tests
 go test ./... -run TestName      # Run specific test by name
@@ -22,6 +24,7 @@ go test ./pkg/config -v          # Run tests for specific package with verbose o
 ```
 
 ### Code Quality
+
 ```bash
 go vet ./...                     # Static analysis
 gofmt -w .                       # Format code (or use goimports)
@@ -31,11 +34,13 @@ gofmt -w .                       # Format code (or use goimports)
 
 The service loads configuration from multiple locations in priority order:
 
-### Project-specific Configuration (highest priority):
+### Project-specific Configuration (highest priority)
+
 - **Config file**: `./.mcproxy/config.jsonc` (override with `MCPROXY_CONFIG` env var)
 - **Secrets file**: `./.mcproxy/secrets.jsonc` (override with `MCPROXY_SECRETS` env var)
 
-### Global Configuration:
+### Global Configuration
+
 - **Config file**: `~/.config/mcproxy/config.jsonc` (XDG-compliant)
 - **Secrets file**: `~/secrets.jsonc`
 
@@ -70,18 +75,21 @@ Default listen address: `:8099`
 }
 ```
 
-#### Endpoint Configuration Fields:
+#### Endpoint Configuration Fields
+
 - **url** (required): Upstream server URL
 - **headers** (optional): Custom headers to add to requests. Supports secret templating with `{{ VAR_NAME }}`
 - **timeout** (optional): Per-endpoint timeout in duration format (e.g., "30s", "1m")
 - **maxBodySize** (optional): Maximum request body size in bytes (e.g., 5242880 for 5MB)
 
-#### Global Configuration Fields:
+#### Global Configuration Fields
+
 - **globalTimeout** (optional): Default timeout for all endpoints (default: 60s)
 - **globalMaxBodySize** (optional): Default max body size for all endpoints (default: 10MB)
 - **logFile** (optional): Path to log file for structured logging output
 
-#### Notes:
+#### Notes
+
 - Per-endpoint settings override global settings
 - Request bodies are streamed without buffering in memory
 - Hop-by-hop headers (Connection, Keep-Alive, etc.) are automatically filtered
@@ -106,6 +114,7 @@ Default listen address: `:8099`
 The service consists of several key components:
 
 ### Core Components
+
 - **Configuration Loader**: Loads and validates JSON config and secrets files from configurable paths
 - **Template Resolver**: Substitutes `{{ var_name }}` placeholders in header values using secrets map
 - **Proxy Registry**: Registers POST handlers for each valid endpoint at `/mcp/{name}`
@@ -114,6 +123,7 @@ The service consists of several key components:
 - **Structured Logging**: Emits logs to stdout with optional file output
 
 ### Request Flow
+
 1. Service starts and loads config/secrets files
 2. For each valid MCP entry, registers a POST handler at `/mcp/{endpoint_name}`
 3. Incoming POST requests are forwarded to the configured upstream URL
@@ -121,12 +131,15 @@ The service consists of several key components:
 5. Response (status, headers, body) is streamed back to caller
 
 ### Error Handling
+
 - Startup fails fast if config or secrets files are missing/invalid
 - Endpoints with unresolved secret variables are skipped with warning logged
 - Service continues operating with valid endpoints even if some are skipped
 
 ### Graceful Shutdown
+
 The server supports graceful shutdown when receiving SIGINT or SIGTERM signals:
+
 - In-flight requests are allowed to complete before shutdown
 - New requests during shutdown receive HTTP 503 Service Unavailable
 - Server waits up to the configured shutdown timeout before forcing exit
@@ -166,6 +179,7 @@ This project uses Backlog.md MCP for all task and project management activities.
 - **When to read it**: BEFORE creating tasks, or when you're unsure whether to track work
 
 These guides cover:
+
 - Decision framework for when to create tasks
 - Search-first workflow to avoid duplicates
 - Links to detailed guides for task creation, execution, and completion

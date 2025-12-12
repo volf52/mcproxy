@@ -9,6 +9,7 @@ JSONC is JSON with support for comments, making configuration files more self-do
 ## Supported Comment Types
 
 ### Single-line Comments
+
 ```jsonc
 {
   "api_token": "secret123", // This is an inline comment
@@ -22,6 +23,7 @@ JSONC is JSON with support for comments, making configuration files more self-do
 ```
 
 ### Multi-line Comments
+
 ```jsonc
 {
   /* This is a multi-line comment that
@@ -53,6 +55,7 @@ mcproxy automatically prioritizes JSONC files:
 Converting existing JSON files to JSONC is straightforward:
 
 ### Before (`config.json`)
+
 ```json
 {
   "endpoints": {
@@ -69,6 +72,7 @@ Converting existing JSON files to JSONC is straightforward:
 ```
 
 ### After (`config.jsonc`)
+
 ```jsonc
 {
   // Main endpoint configuration
@@ -91,6 +95,7 @@ Converting existing JSON files to JSONC is straightforward:
 ## Best Practices
 
 ### 1. Document Complex Configurations
+
 ```jsonc
 {
   "endpoints": {
@@ -121,6 +126,7 @@ Converting existing JSON files to JSONC is straightforward:
 ```
 
 ### 2. Comment Secret Templates
+
 ```jsonc
 {
   "endpoints": {
@@ -153,6 +159,7 @@ Converting existing JSON files to JSONC is straightforward:
 ```
 
 ### 3. Environment-Specific Comments
+
 ```jsonc
 {
   // === DEVELOPMENT ENVIRONMENT CONFIGURATION ===
@@ -176,9 +183,11 @@ Converting existing JSON files to JSONC is straightforward:
 ```
 
 ### 4. Hierarchical Configuration Comments
+
 When using hierarchical configuration (global + project overrides), use comments to clarify the inheritance:
 
 **Global Config (`~/config.jsonc`):**
+
 ```jsonc
 {
   // === GLOBAL CONFIGURATION ===
@@ -200,6 +209,7 @@ When using hierarchical configuration (global + project overrides), use comments
 ```
 
 **Project Config (`./config.jsonc`):**
+
 ```jsonc
 {
   // === PROJECT-SPECIFIC CONFIGURATION ===
@@ -241,18 +251,22 @@ Most modern IDEs support JSONC syntax highlighting:
 ### Common Issues
 
 1. **Unterminated multi-line comments**
+
    ```jsonc
    /* This comment is not properly closed
    "invalid": "json"
    ```
+
    **Fix**: Ensure all `/*` have matching `*/`
 
 2. **Invalid comment placement**
+
    ```jsonc
    {
      "key": /* inline multi-line comments should be avoided */ "value"
    }
    ```
+
    **Fix**: Place multi-line comments on separate lines
 
 3. **JSON Syntax Errors**
@@ -261,6 +275,7 @@ Most modern IDEs support JSONC syntax highlighting:
 ### Validation
 
 Use the generated JSON Schema for validation:
+
 ```bash
 go run cmd/generate-schema/main.go
 # Validate your .jsonc files against the generated schema
@@ -269,5 +284,6 @@ go run cmd/generate-schema/main.go
 ## Examples Repository
 
 For more examples, check the project documentation:
+
 - `README.md` - Basic configuration examples
 - Configuration schema: `config.schema.json` - Generated from Go structs

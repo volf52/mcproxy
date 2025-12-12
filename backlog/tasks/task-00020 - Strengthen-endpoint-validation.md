@@ -1,10 +1,10 @@
 ---
 id: task-00020
 title: Strengthen endpoint validation
-status: To Do
+status: Done
 assignee: []
 created_date: '2025-12-11 19:55'
-updated_date: '2025-12-11 20:00'
+updated_date: '2025-12-12 19:48'
 labels:
   - bug
 dependencies: []
@@ -300,4 +300,14 @@ func TestValidateHeaderKey(t *testing.T) {
 - Existing configurations with valid URLs and headers will continue to work
 - Configurations with invalid URLs or headers will now fail fast at startup instead of at runtime
 - This improves developer experience by catching errors early
+
+Task completed successfully.
+
+Added comprehensive URL, header, and endpoint name validation
+
+Implemented HTTP/HTTPS scheme restriction and RFC 7230 header validation
+
+Added case-insensitive collision detection and aggregated error reporting
+
+Created comprehensive test suite covering all scenarios
 <!-- SECTION:NOTES:END -->
