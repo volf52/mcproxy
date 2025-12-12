@@ -4,11 +4,20 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"mcproxy/pkg/logging"
 )
+
+// ServerConfig contains server-specific configuration
+type ServerConfig struct {
+	ReadTimeout     int `json:"readTimeout,omitempty" description:"Maximum duration for reading the entire request, including the body (seconds)"`
+	WriteTimeout    int `json:"writeTimeout,omitempty" description:"Maximum duration before timing out writes of the response (seconds)"`
+	IdleTimeout     int `json:"idleTimeout,omitempty" description:"Maximum amount of time to wait for the next request when keep-alives are enabled (seconds)"`
+	ShutdownTimeout int `json:"shutdownTimeout,omitempty" description:"Maximum time to wait for graceful shutdown (seconds)"`
+}
 
 // Config represents the main configuration structure
 type Config struct {
@@ -16,6 +25,7 @@ type Config struct {
 	LogFile           string              `json:"logFile,omitempty"`
 	GlobalTimeout     time.Duration       `json:"globalTimeout,omitempty"`     // Global timeout for all endpoints (default: 60s)
 	GlobalMaxBodySize int64               `json:"globalMaxBodySize,omitempty"` // Global max body size in bytes (default: 10MB)
+	Server            ServerConfig        `json:"server,omitempty"`            // Server configuration for timeouts and shutdown
 }
 
 // Endpoint represents a single proxy endpoint configuration
@@ -149,6 +159,20 @@ func setConfigDefaults(config *Config) {
 	if config.GlobalMaxBodySize == 0 {
 		config.GlobalMaxBodySize = 10 * 1024 * 1024 // 10MB
 	}
+
+	// Set server defaults
+	if config.Server.ReadTimeout == 0 {
+		config.Server.ReadTimeout = 30 // 30 seconds
+	}
+	if config.Server.WriteTimeout == 0 {
+		config.Server.WriteTimeout = 30 // 30 seconds
+	}
+	if config.Server.IdleTimeout == 0 {
+		config.Server.IdleTimeout = 120 // 120 seconds
+	}
+	if config.Server.ShutdownTimeout == 0 {
+		config.Server.ShutdownTimeout = 30 // 30 seconds
+	}
 }
 
 // LoadConfigWithDefaults loads configuration with backward compatibility
@@ -183,6 +207,9 @@ func LoadConfigWithDefaults() (*Config, Secrets, error) {
 
 	// Apply default values
 	setConfigDefaults(config)
+
+	// Override with environment variables if present
+	overrideWithEnvVars(config)
 
 	return config, secrets, nil
 }
@@ -266,4 +293,33 @@ func substituteTemplate(text string, secrets Secrets) (string, []string, error) 
 	}
 
 	return text, missingVars, nil
+}
+
+// overrideWithEnvVars overrides configuration with environment variables
+func overrideWithEnvVars(config *Config) {
+	// Override server timeouts if environment variables are set
+	if readTimeout := os.Getenv("MCPROXY_READ_TIMEOUT"); readTimeout != "" {
+		if val, err := strconv.Atoi(readTimeout); err == nil && val > 0 {
+			config.Server.ReadTimeout = val
+			logging.Debugf("Overriding read timeout with environment variable: %d seconds", val)
+		}
+	}
+	if writeTimeout := os.Getenv("MCPROXY_WRITE_TIMEOUT"); writeTimeout != "" {
+		if val, err := strconv.Atoi(writeTimeout); err == nil && val > 0 {
+			config.Server.WriteTimeout = val
+			logging.Debugf("Overriding write timeout with environment variable: %d seconds", val)
+		}
+	}
+	if idleTimeout := os.Getenv("MCPROXY_IDLE_TIMEOUT"); idleTimeout != "" {
+		if val, err := strconv.Atoi(idleTimeout); err == nil && val > 0 {
+			config.Server.IdleTimeout = val
+			logging.Debugf("Overriding idle timeout with environment variable: %d seconds", val)
+		}
+	}
+	if shutdownTimeout := os.Getenv("MCPROXY_SHUTDOWN_TIMEOUT"); shutdownTimeout != "" {
+		if val, err := strconv.Atoi(shutdownTimeout); err == nil && val > 0 {
+			config.Server.ShutdownTimeout = val
+			logging.Debugf("Overriding shutdown timeout with environment variable: %d seconds", val)
+		}
+	}
 }

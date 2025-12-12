@@ -19,3 +19,4 @@ Thumbs.db
 *.out
 coverage.html
 dist
+.claude/settings.local.json

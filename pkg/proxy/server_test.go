@@ -83,8 +83,16 @@ func TestEndpointRegistrationWithMcpPrefix(t *testing.T) {
 				tt.endpointName: tt.endpointConfig,
 			}
 
+			// Create server config with default values
+			serverConfig := config.ServerConfig{
+				ReadTimeout:     30,
+				WriteTimeout:    30,
+				IdleTimeout:     120,
+				ShutdownTimeout: 30,
+			}
+
 			// Create server
-			server := NewServer(":8080", endpoints)
+			server := NewServer(":8080", endpoints, serverConfig)
 
 			// Create test mux to simulate server behavior
 			mux := http.NewServeMux()
@@ -187,7 +195,12 @@ func TestPostRequestForwardingToMcpEndpoints(t *testing.T) {
 	}
 
 	// Create server
-	_ = NewServer(":8080", endpoints)
+	_ = NewServer(":8080", endpoints, config.ServerConfig{
+		ReadTimeout:     30,
+		WriteTimeout:    30,
+		IdleTimeout:     120,
+		ShutdownTimeout: 30,
+	})
 
 	// Test the old pattern (should work)
 	body := strings.NewReader(`{"test": "data", "endpoint": "test"}`)
@@ -222,7 +235,12 @@ func TestHttpMethodRestrictions(t *testing.T) {
 		},
 	}
 
-	server := NewServer(":8080", endpoints)
+	server := NewServer(":8080", endpoints, config.ServerConfig{
+		ReadTimeout:     30,
+		WriteTimeout:    30,
+		IdleTimeout:     120,
+		ShutdownTimeout: 30,
+	})
 
 	// Create test mux
 	mux := http.NewServeMux()
@@ -283,7 +301,12 @@ func TestNotFoundHandling(t *testing.T) {
 		},
 	}
 
-	server := NewServer(":8080", endpoints)
+	server := NewServer(":8080", endpoints, config.ServerConfig{
+		ReadTimeout:     30,
+		WriteTimeout:    30,
+		IdleTimeout:     120,
+		ShutdownTimeout: 30,
+	})
 
 	// Create test mux
 	mux := http.NewServeMux()
@@ -348,7 +371,12 @@ func TestRootHandlerUnchanged(t *testing.T) {
 		},
 	}
 
-	server := NewServer(":8080", endpoints)
+	server := NewServer(":8080", endpoints, config.ServerConfig{
+		ReadTimeout:     30,
+		WriteTimeout:    30,
+		IdleTimeout:     120,
+		ShutdownTimeout: 30,
+	})
 
 	// Create test mux
 	mux := http.NewServeMux()
@@ -427,7 +455,12 @@ func TestMultipleEndpointsIndependently(t *testing.T) {
 		},
 	}
 
-	server := NewServer(":8080", endpoints)
+	server := NewServer(":8080", endpoints, config.ServerConfig{
+		ReadTimeout:     30,
+		WriteTimeout:    30,
+		IdleTimeout:     120,
+		ShutdownTimeout: 30,
+	})
 
 	// Create test mux
 	mux := http.NewServeMux()
@@ -519,7 +552,12 @@ func TestEdgeCases(t *testing.T) {
 				},
 			}
 
-			server := NewServer(":8080", endpoints)
+			server := NewServer(":8080", endpoints, config.ServerConfig{
+				ReadTimeout:     30,
+				WriteTimeout:    30,
+				IdleTimeout:     120,
+				ShutdownTimeout: 30,
+			})
 
 			// Create test mux
 			mux := http.NewServeMux()
@@ -568,7 +606,12 @@ func TestMcpPrefixImplementation(t *testing.T) {
 		},
 	}
 
-	server := NewServer(":8080", endpoints)
+	server := NewServer(":8080", endpoints, config.ServerConfig{
+		ReadTimeout:     30,
+		WriteTimeout:    30,
+		IdleTimeout:     120,
+		ShutdownTimeout: 30,
+	})
 
 	// Create test mux with the NEW /mcp pattern
 	mux := http.NewServeMux()
@@ -644,7 +687,12 @@ func TestStreamingRequestBody(t *testing.T) {
 		},
 	}
 
-	server := NewServer(":8080", endpoints)
+	server := NewServer(":8080", endpoints, config.ServerConfig{
+		ReadTimeout:     30,
+		WriteTimeout:    30,
+		IdleTimeout:     120,
+		ShutdownTimeout: 30,
+	})
 
 	// Create test mux with /mcp pattern
 	mux := http.NewServeMux()
@@ -690,7 +738,12 @@ func TestRequestTimeout(t *testing.T) {
 		},
 	}
 
-	server := NewServer(":8080", endpoints)
+	server := NewServer(":8080", endpoints, config.ServerConfig{
+		ReadTimeout:     30,
+		WriteTimeout:    30,
+		IdleTimeout:     120,
+		ShutdownTimeout: 30,
+	})
 
 	// Create test mux
 	mux := http.NewServeMux()
@@ -787,7 +840,12 @@ func TestHeaderFiltering(t *testing.T) {
 			},
 		}
 
-		server := NewServer(":8080", endpoints)
+		server := NewServer(":8080", endpoints, config.ServerConfig{
+			ReadTimeout:     30,
+			WriteTimeout:    30,
+			IdleTimeout:     120,
+			ShutdownTimeout: 30,
+		})
 
 		// Create test mux
 		mux := http.NewServeMux()
@@ -872,7 +930,12 @@ func TestRequestSizeLimit(t *testing.T) {
 		},
 	}
 
-	server := NewServer(":8080", endpoints)
+	server := NewServer(":8080", endpoints, config.ServerConfig{
+		ReadTimeout:     30,
+		WriteTimeout:    30,
+		IdleTimeout:     120,
+		ShutdownTimeout: 30,
+	})
 
 	// Create test mux
 	mux := http.NewServeMux()
@@ -927,7 +990,12 @@ func TestContextCancellation(t *testing.T) {
 		},
 	}
 
-	server := NewServer(":8080", endpoints)
+	server := NewServer(":8080", endpoints, config.ServerConfig{
+		ReadTimeout:     30,
+		WriteTimeout:    30,
+		IdleTimeout:     120,
+		ShutdownTimeout: 30,
+	})
 
 	// Create test mux
 	mux := http.NewServeMux()
@@ -982,7 +1050,12 @@ func TestHostHeaderSetting(t *testing.T) {
 		},
 	}
 
-	server := NewServer(":8080", endpoints)
+	server := NewServer(":8080", endpoints, config.ServerConfig{
+		ReadTimeout:     30,
+		WriteTimeout:    30,
+		IdleTimeout:     120,
+		ShutdownTimeout: 30,
+	})
 
 	// Create test mux
 	mux := http.NewServeMux()

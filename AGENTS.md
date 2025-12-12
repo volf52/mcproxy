@@ -60,7 +60,13 @@ Default listen address: `:8099`
   },
   "globalTimeout": "60s",       // Optional: Global timeout for all endpoints
   "globalMaxBodySize": 10485760, // Optional: Global max body size in bytes (10MB)
-  "logFile": "/var/log/mcproxy.log"
+  "logFile": "/var/log/mcproxy.log",
+  "server": {                   // Optional: Server configuration
+    "readTimeout": 30,          // Optional: Max duration for reading request (seconds, default: 30)
+    "writeTimeout": 30,         // Optional: Max duration for writing response (seconds, default: 30)
+    "idleTimeout": 120,         // Optional: Max time for keep-alive connections (seconds, default: 120)
+    "shutdownTimeout": 30       // Optional: Max time for graceful shutdown (seconds, default: 30)
+  }
 }
 ```
 
@@ -88,6 +94,13 @@ Default listen address: `:8099`
 - **MCPROXY_SECRETS**: Path to the secrets file. Overrides default search paths (both .mcproxy/ and home directory).
 - **MCPROXY_PORT**: Port for the HTTP server to listen on. Supports both "8099" and ":8099" formats. Defaults to ":8099" if not set.
 
+### Server Timeout Environment Variables
+
+- **MCPROXY_READ_TIMEOUT**: Maximum duration for reading the entire request, including the body (seconds, default: 30)
+- **MCPROXY_WRITE_TIMEOUT**: Maximum duration before timing out writes of the response (seconds, default: 30)
+- **MCPROXY_IDLE_TIMEOUT**: Maximum amount of time to wait for the next request when keep-alives are enabled (seconds, default: 120)
+- **MCPROXY_SHUTDOWN_TIMEOUT**: Maximum time to wait for graceful shutdown (seconds, default: 30)
+
 ## Architecture
 
 The service consists of several key components:
@@ -97,6 +110,7 @@ The service consists of several key components:
 - **Template Resolver**: Substitutes `{{ var_name }}` placeholders in header values using secrets map
 - **Proxy Registry**: Registers POST handlers for each valid endpoint at `/mcp/{name}`
 - **HTTP Client**: Shared client with connection reuse, timeouts, and TLS support for HTTPS upstreams
+- **Server with Timeouts**: HTTP server with configurable read/write/idle timeouts and graceful shutdown support
 - **Structured Logging**: Emits logs to stdout with optional file output
 
 ### Request Flow
@@ -110,6 +124,13 @@ The service consists of several key components:
 - Startup fails fast if config or secrets files are missing/invalid
 - Endpoints with unresolved secret variables are skipped with warning logged
 - Service continues operating with valid endpoints even if some are skipped
+
+### Graceful Shutdown
+The server supports graceful shutdown when receiving SIGINT or SIGTERM signals:
+- In-flight requests are allowed to complete before shutdown
+- New requests during shutdown receive HTTP 503 Service Unavailable
+- Server waits up to the configured shutdown timeout before forcing exit
+- All connections are properly closed to prevent resource leaks
 
 ## Code Style Guidelines
 

@@ -218,7 +218,7 @@ func mergeConfigs(global, project *Config) *Config {
 		Endpoints: make(map[string]Endpoint),
 	}
 
-	// Copy global endpoints first
+	// Copy global config first
 	if global != nil {
 		for name, endpoint := range global.Endpoints {
 			merged.Endpoints[name] = endpoint
@@ -226,13 +226,36 @@ func mergeConfigs(global, project *Config) *Config {
 		if global.LogFile != "" {
 			merged.LogFile = global.LogFile
 		}
+		// Copy global server config
+		merged.Server = global.Server
+		merged.GlobalTimeout = global.GlobalTimeout
+		merged.GlobalMaxBodySize = global.GlobalMaxBodySize
 	}
 
-	// Override with project endpoints
+	// Override with project config
 	if project != nil {
 		maps.Copy(merged.Endpoints, project.Endpoints)
 		if project.LogFile != "" {
 			merged.LogFile = project.LogFile
+		}
+		// Override server config with project settings
+		if project.Server.ReadTimeout != 0 {
+			merged.Server.ReadTimeout = project.Server.ReadTimeout
+		}
+		if project.Server.WriteTimeout != 0 {
+			merged.Server.WriteTimeout = project.Server.WriteTimeout
+		}
+		if project.Server.IdleTimeout != 0 {
+			merged.Server.IdleTimeout = project.Server.IdleTimeout
+		}
+		if project.Server.ShutdownTimeout != 0 {
+			merged.Server.ShutdownTimeout = project.Server.ShutdownTimeout
+		}
+		if project.GlobalTimeout != 0 {
+			merged.GlobalTimeout = project.GlobalTimeout
+		}
+		if project.GlobalMaxBodySize != 0 {
+			merged.GlobalMaxBodySize = project.GlobalMaxBodySize
 		}
 	}
 

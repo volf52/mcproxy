@@ -25,7 +25,12 @@ func TestSimpleMcpPrefix(t *testing.T) {
 		},
 	}
 
-	server := NewServer(":8080", endpoints)
+	server := NewServer(":8080", endpoints, config.ServerConfig{
+		ReadTimeout:     30,
+		WriteTimeout:    30,
+		IdleTimeout:     120,
+		ShutdownTimeout: 30,
+	})
 
 	// Test our implementation by registering endpoints exactly as the server does
 	mux := http.NewServeMux()

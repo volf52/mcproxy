@@ -7,7 +7,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"os/signal"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"mcproxy/pkg/config"
@@ -73,21 +78,76 @@ func filterHopByHopHeaders(header http.Header) http.Header {
 
 // Server represents the proxy server
 type Server struct {
-	port       string
-	endpoints  map[string]config.Endpoint
-	httpClient *http.Client
+	port           string
+	endpoints      map[string]config.Endpoint
+	serverConfig   config.ServerConfig
+	httpClient     *http.Client
+	server         *http.Server
+	shutdownWG     sync.WaitGroup
+	shutdownOnce   sync.Once
+	shutdownCtx    context.Context
+	shutdownCancel context.CancelFunc
+	isShuttingDown atomicBool
+}
+
+// atomicBool provides atomic boolean operations
+type atomicBool struct {
+	value int32
+}
+
+func (b *atomicBool) set(value bool) {
+	var i int32
+	if value {
+		i = 1
+	}
+	atomic.StoreInt32(&b.value, i)
+}
+
+func (b *atomicBool) get() bool {
+	return atomic.LoadInt32(&b.value) != 0
 }
 
 // NewServer creates a new proxy server instance
-func NewServer(port string, endpoints map[string]config.Endpoint) *Server {
+func NewServer(port string, endpoints map[string]config.Endpoint, serverConfig config.ServerConfig) *Server {
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+
 	return &Server{
-		port:       port,
-		endpoints:  endpoints,
-		httpClient: createHTTPClient(),
+		port:           port,
+		endpoints:      endpoints,
+		serverConfig:   serverConfig,
+		httpClient:     createHTTPClient(),
+		shutdownCtx:    shutdownCtx,
+		shutdownCancel: shutdownCancel,
+		isShuttingDown: atomicBool{},
 	}
 }
 
-// Start starts the proxy server and registers all endpoints
+// StartWithShutdown starts the proxy server and handles graceful shutdown
+func (s *Server) StartWithShutdown() error {
+	// Set up signal handling
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Start server in goroutine
+	errChan := make(chan error, 1)
+	s.shutdownWG.Add(1)
+	go func() {
+		defer s.shutdownWG.Done()
+		logging.Printf("Starting mcproxy server on port %s", s.port)
+		errChan <- s.listenAndServe()
+	}()
+
+	// Wait for either error or signal
+	select {
+	case err := <-errChan:
+		return err
+	case sig := <-sigChan:
+		logging.Printf("Received signal %v, initiating graceful shutdown", sig)
+		return s.gracefulShutdown()
+	}
+}
+
+// Start starts the proxy server without shutdown handling (backward compatibility)
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
@@ -114,6 +174,110 @@ func (s *Server) Start() error {
 	return http.ListenAndServe(s.port, mux)
 }
 
+// listenAndServe creates and starts the HTTP server with configured timeouts
+func (s *Server) listenAndServe() error {
+	mux := http.NewServeMux()
+
+	// Create shutdown check middleware
+	shutdownMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Check if server is shutting down
+			select {
+			case <-s.shutdownCtx.Done():
+				http.Error(w, "Server shutting down", http.StatusServiceUnavailable)
+				return
+			default:
+				// Track in-flight requests for graceful shutdown
+				s.shutdownWG.Add(1)
+				defer s.shutdownWG.Done()
+				next.ServeHTTP(w, r)
+			}
+		})
+	}
+
+	// Apply middleware to all handlers
+	handler := shutdownMiddleware(mux)
+
+	// Register endpoint handlers
+	for name, endpoint := range s.endpoints {
+		handlerFunc := s.createProxyHandler(name, endpoint)
+		pattern := fmt.Sprintf("/mcp/%s", name)
+		mux.HandleFunc(pattern, handlerFunc)
+		logging.LogEndpointRegistration(name, endpoint.Url, "/mcp", endpoint.Headers)
+	}
+
+	// Add root handler
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"service": "mcproxy", "status": "running"}`)
+	})
+
+	// Create server with timeouts
+	s.server = &http.Server{
+		Addr:         s.port,
+		Handler:      handler,
+		ReadTimeout:  time.Duration(s.serverConfig.ReadTimeout) * time.Second,
+		WriteTimeout: time.Duration(s.serverConfig.WriteTimeout) * time.Second,
+		IdleTimeout:  time.Duration(s.serverConfig.IdleTimeout) * time.Second,
+	}
+
+	return s.server.ListenAndServe()
+}
+
+// gracefulShutdown performs a graceful shutdown of the server
+func (s *Server) gracefulShutdown() error {
+	var err error
+	s.shutdownOnce.Do(func() {
+		// Set shutting down flag
+		s.isShuttingDown.set(true)
+
+		// Cancel the shutdown context to signal handlers
+		s.shutdownCancel()
+
+		// Create shutdown context with timeout
+		shutdownCtx, cancel := context.WithTimeout(context.Background(),
+			time.Duration(s.serverConfig.ShutdownTimeout)*time.Second)
+		defer cancel()
+
+		logging.Printf("Shutting down server gracefully (timeout: %v)",
+			time.Duration(s.serverConfig.ShutdownTimeout)*time.Second)
+
+		if s.server != nil {
+			// Shutdown the server
+			if shutdownErr := s.server.Shutdown(shutdownCtx); shutdownErr != nil {
+				logging.Printf("Error during server shutdown: %v", shutdownErr)
+				err = shutdownErr
+			}
+		}
+
+		// Wait for all handlers to complete
+		done := make(chan struct{})
+		go func() {
+			s.shutdownWG.Wait()
+			close(done)
+		}()
+
+		// Wait for either completion or timeout
+		select {
+		case <-done:
+			logging.Printf("Server shutdown complete")
+		case <-shutdownCtx.Done():
+			logging.Printf("Server shutdown timeout, forcing exit")
+			if s.server != nil {
+				// Force close remaining connections
+				s.server.Close()
+			}
+		}
+	})
+
+	return err
+}
+
 // createProxyHandler creates an HTTP handler for a specific endpoint
 func (s *Server) createProxyHandler(name string, endpoint config.Endpoint) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -130,6 +294,14 @@ func (s *Server) createProxyHandler(name string, endpoint config.Endpoint) http.
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithTimeout(ctx, timeout)
 			defer cancel()
+		}
+
+		// Check if server is shutting down
+		select {
+		case <-s.shutdownCtx.Done():
+			http.Error(w, "Server shutting down", http.StatusServiceUnavailable)
+			return
+		default:
 		}
 
 		// Check request size against limits

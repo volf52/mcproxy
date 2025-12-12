@@ -133,7 +133,12 @@ func TestHTTPClientHTTPS(t *testing.T) {
 		},
 	}
 
-	server := NewServer(":8080", endpoints)
+	server := NewServer(":8080", endpoints, config.ServerConfig{
+		ReadTimeout:     30,
+		WriteTimeout:    30,
+		IdleTimeout:     120,
+		ShutdownTimeout: 30,
+	})
 
 	// Test that the client was created successfully (has TLS config)
 	if server.httpClient.Transport == nil {
