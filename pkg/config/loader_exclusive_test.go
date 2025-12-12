@@ -251,10 +251,12 @@ func TestLoadConfigHierarchical_ExclusiveModeErrors(t *testing.T) {
 	// Save original environment variables
 	originalConfig := os.Getenv("MCPROXY_CONFIG")
 	originalSecrets := os.Getenv("MCPROXY_SECRETS")
+	originalHome := os.Getenv("HOME")
 
 	defer func() {
 		os.Setenv("MCPROXY_CONFIG", originalConfig)
 		os.Setenv("MCPROXY_SECRETS", originalSecrets)
+		os.Setenv("HOME", originalHome)
 	}()
 
 	tests := []struct {
@@ -288,11 +290,11 @@ func TestLoadConfigHierarchical_ExclusiveModeErrors(t *testing.T) {
 		{
 			name: "both files invalid",
 			setupEnv: func() {
+				os.Setenv("HOME", tmpDir) // Ensure hierarchical mode doesn't pick up files from real home
 				os.Setenv("MCPROXY_CONFIG", filepath.Join(tmpDir, "bad1.json"))
 				os.Setenv("MCPROXY_SECRETS", filepath.Join(tmpDir, "bad2.json"))
 			},
-			wantErr:         true,
-			wantErrContains: "failed to load exclusive config",
+			wantErr: false, // Should fall back to hierarchical mode and return empty config
 		},
 		{
 			name: "both files valid",

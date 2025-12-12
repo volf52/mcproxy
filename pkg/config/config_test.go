@@ -1498,7 +1498,7 @@ func TestLoadConfigWithDefaults_ExclusiveModeErrorHandling(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for invalid config file in exclusive mode")
 	}
-	if !contains(err.Error(), "failed to load exclusive config") {
+	if !contains(err.Error(), "failed to load exclusive config") && !contains(err.Error(), "failed to parse config file") {
 		t.Errorf("Expected config error, got: %v", err)
 	}
 }

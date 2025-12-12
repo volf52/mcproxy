@@ -350,114 +350,65 @@ func LoadConfigHierarchical() (*HierarchicalLoadResult, error) {
 	var globalConfig, projectConfig *Config
 	var globalSecrets, projectSecrets Secrets
 
-	// Check if we should use exclusive mode
-	// First, check if all specified files exist
-	configExists := true
-	secretsExists := true
+	// If no environment variables are set, use hierarchical mode directly
+	if envConfigPath == "" && envSecretsPath == "" {
+		globalConfig, projectConfig, globalSecrets, projectSecrets = loadHierarchicalConfigs(result)
+	} else {
+		// Environment variables are set, check if we should use exclusive mode
+		// First, check if all specified files exist
+		configExists := true
+		secretsExists := true
 
-	if envConfigPath != "" {
-		if _, err := os.Stat(envConfigPath); err != nil {
-			configExists = false
-		}
-	}
-
-	if envSecretsPath != "" {
-		if _, err := os.Stat(envSecretsPath); err != nil {
-			secretsExists = false
-		}
-	}
-
-	// If any environment variable was set and files don't exist, check what to do
-	if envConfigPath != "" || envSecretsPath != "" {
-		// If one file exists and the other doesn't, return an error
-		if (envConfigPath != "" && envSecretsPath != "") && (configExists != secretsExists) {
-			if envConfigPath != "" && !configExists {
-				return nil, fmt.Errorf("failed to load exclusive secrets: config file exists but secrets file %s does not exist", envSecretsPath)
-			}
-			if envSecretsPath != "" && !secretsExists {
-				return nil, fmt.Errorf("failed to load exclusive secrets: secrets file exists but config file %s does not exist", envConfigPath)
+		if envConfigPath != "" {
+			if _, err := os.Stat(envConfigPath); err != nil {
+				configExists = false
 			}
 		}
 
-		// If both files don't exist, fall back to hierarchical mode
-		if !configExists && !secretsExists {
-			// Don't use exclusive mode, will fall back to hierarchical loading
-		} else if configExists && secretsExists {
-			// Both files exist, use exclusive mode
-			if envConfigPath != "" {
-				config, loadErr := loadConfigFileExclusive(envConfigPath)
-				if loadErr != nil {
-					return nil, fmt.Errorf("failed to load exclusive config: %w", loadErr)
+		if envSecretsPath != "" {
+			if _, err := os.Stat(envSecretsPath); err != nil {
+				secretsExists = false
+			}
+		}
+
+		// If any environment variable was set and files don't exist, check what to do
+		if envConfigPath != "" || envSecretsPath != "" {
+			// If one file exists and the other doesn't, return an error
+			if (envConfigPath != "" && envSecretsPath != "") && (configExists != secretsExists) {
+				if envConfigPath != "" && !configExists {
+					return nil, fmt.Errorf("failed to load exclusive secrets: config file exists but secrets file %s does not exist", envSecretsPath)
 				}
-				projectConfig = config
-				result.ProjectFiles.Path = envConfigPath
-				result.ProjectFiles.Loaded = true
-				result.ProjectFiles.Endpoints = len(projectConfig.Endpoints)
-				logging.Printf("Loaded exclusive config from %s (%d endpoints)", envConfigPath, len(projectConfig.Endpoints))
-			}
-
-			if envSecretsPath != "" {
-				secrets, loadErr := loadSecretsFileExclusive(envSecretsPath)
-				if loadErr != nil {
-					return nil, fmt.Errorf("failed to load exclusive secrets: %w", loadErr)
+				if envSecretsPath != "" && !secretsExists {
+					return nil, fmt.Errorf("failed to load exclusive secrets: secrets file exists but config file %s does not exist", envConfigPath)
 				}
-				projectSecrets = secrets
-				result.ProjectFiles.Secrets = len(projectSecrets)
-				logging.Printf("Loaded exclusive secrets from %s (%d entries)", envSecretsPath, len(projectSecrets))
 			}
 
-			// Skip hierarchical loading since we're in exclusive mode
-			// Variables are already loaded, skip to merging
-		} else {
-			// Hierarchical mode: load global and project configs
-			globalConfigPath := getGlobalConfigPath()
-			projectConfigPath := getProjectConfigPath()
+			// If both files don't exist, fall back to hierarchical mode
+			if !configExists && !secretsExists {
+				globalConfig, projectConfig, globalSecrets, projectSecrets = loadHierarchicalConfigs(result)
+			} else if configExists && secretsExists {
+				// Both files exist, use exclusive mode
+				if envConfigPath != "" {
+					config, loadErr := loadConfigFileExclusive(envConfigPath)
+					if loadErr != nil {
+						return nil, fmt.Errorf("failed to load exclusive config: %w", loadErr)
+					}
+					projectConfig = config
+					result.ProjectFiles.Path = envConfigPath
+					result.ProjectFiles.Loaded = true
+					result.ProjectFiles.Endpoints = len(projectConfig.Endpoints)
+					logging.Printf("Loaded exclusive config from %s (%d endpoints)", envConfigPath, len(projectConfig.Endpoints))
+				}
 
-			// Initialize file info
-			result.GlobalFiles = ConfigFileInfo{Path: globalConfigPath}
-			result.ProjectFiles = ConfigFileInfo{Path: projectConfigPath}
-
-			logging.Debugf("Looking for configuration files...")
-			logging.Debugf("Global config: %s", globalConfigPath)
-			logging.Debugf("Project config: %s", projectConfigPath)
-
-			// Load global config
-			globalConfig, _ = loadConfigFromFile(globalConfigPath)
-			if globalConfig != nil {
-				result.GlobalFiles.Loaded = true
-				result.GlobalFiles.Endpoints = len(globalConfig.Endpoints)
-				logging.Printf("Loaded global config from %s (%d endpoints)", globalConfigPath, len(globalConfig.Endpoints))
-			}
-
-			// Load project config
-			loadedProjectConfig, _ := loadConfigFromFile(projectConfigPath)
-			if loadedProjectConfig != nil {
-				projectConfig = loadedProjectConfig
-				result.ProjectFiles.Loaded = true
-				result.ProjectFiles.Endpoints = len(projectConfig.Endpoints)
-				logging.Printf("Loaded project config from %s (%d endpoints)", projectConfigPath, len(projectConfig.Endpoints))
-			}
-
-			// Hierarchical mode: load global and project secrets
-			globalSecretsPath := getGlobalSecretsPath()
-			projectSecretsPath := getProjectSecretsPath()
-
-			logging.Debugf("Global secrets: %s", globalSecretsPath)
-			logging.Debugf("Project secrets: %s", projectSecretsPath)
-
-			// Load global secrets
-			globalSecrets, _ = loadSecretsFromFile(globalSecretsPath)
-			if globalSecrets != nil {
-				result.GlobalFiles.Secrets = len(globalSecrets)
-				logging.Printf("Loaded global secrets from %s (%d entries)", globalSecretsPath, len(globalSecrets))
-			}
-
-			// Load project secrets
-			loadedProjectSecrets, _ := loadSecretsFromFile(projectSecretsPath)
-			if loadedProjectSecrets != nil {
-				projectSecrets = loadedProjectSecrets
-				result.ProjectFiles.Secrets = len(projectSecrets)
-				logging.Printf("Loaded project secrets from %s (%d entries)", projectSecretsPath, len(projectSecrets))
+				if envSecretsPath != "" {
+					secrets, loadErr := loadSecretsFileExclusive(envSecretsPath)
+					if loadErr != nil {
+						return nil, fmt.Errorf("failed to load exclusive secrets: %w", loadErr)
+					}
+					projectSecrets = secrets
+					result.ProjectFiles.Secrets = len(projectSecrets)
+					logging.Printf("Loaded exclusive secrets from %s (%d entries)", envSecretsPath, len(projectSecrets))
+				}
 			}
 		}
 	}
@@ -482,6 +433,65 @@ func LoadConfigHierarchical() (*HierarchicalLoadResult, error) {
 	}
 
 	return result, nil
+}
+
+// loadHierarchicalConfigs loads configs from global and project locations
+func loadHierarchicalConfigs(result *HierarchicalLoadResult) (*Config, *Config, Secrets, Secrets) {
+	var globalConfig, projectConfig *Config
+	var globalSecrets, projectSecrets Secrets
+
+	// Hierarchical mode: load global and project configs
+	globalConfigPath := getGlobalConfigPath()
+	projectConfigPath := getProjectConfigPath()
+
+	// Initialize file info
+	result.GlobalFiles = ConfigFileInfo{Path: globalConfigPath}
+	result.ProjectFiles = ConfigFileInfo{Path: projectConfigPath}
+
+	logging.Debugf("Looking for configuration files...")
+	logging.Debugf("Global config: %s", globalConfigPath)
+	logging.Debugf("Project config: %s", projectConfigPath)
+
+	// Load global config
+	globalConfig, _ = loadConfigFromFile(globalConfigPath)
+	if globalConfig != nil {
+		result.GlobalFiles.Loaded = true
+		result.GlobalFiles.Endpoints = len(globalConfig.Endpoints)
+		logging.Printf("Loaded global config from %s (%d endpoints)", globalConfigPath, len(globalConfig.Endpoints))
+	}
+
+	// Load project config
+	loadedProjectConfig, _ := loadConfigFromFile(projectConfigPath)
+	if loadedProjectConfig != nil {
+		projectConfig = loadedProjectConfig
+		result.ProjectFiles.Loaded = true
+		result.ProjectFiles.Endpoints = len(projectConfig.Endpoints)
+		logging.Printf("Loaded project config from %s (%d endpoints)", projectConfigPath, len(projectConfig.Endpoints))
+	}
+
+	// Hierarchical mode: load global and project secrets
+	globalSecretsPath := getGlobalSecretsPath()
+	projectSecretsPath := getProjectSecretsPath()
+
+	logging.Debugf("Global secrets: %s", globalSecretsPath)
+	logging.Debugf("Project secrets: %s", projectSecretsPath)
+
+	// Load global secrets
+	globalSecrets, _ = loadSecretsFromFile(globalSecretsPath)
+	if globalSecrets != nil {
+		result.GlobalFiles.Secrets = len(globalSecrets)
+		logging.Printf("Loaded global secrets from %s (%d entries)", globalSecretsPath, len(globalSecrets))
+	}
+
+	// Load project secrets
+	loadedProjectSecrets, _ := loadSecretsFromFile(projectSecretsPath)
+	if loadedProjectSecrets != nil {
+		projectSecrets = loadedProjectSecrets
+		result.ProjectFiles.Secrets = len(projectSecrets)
+		logging.Printf("Loaded project secrets from %s (%d entries)", projectSecretsPath, len(projectSecrets))
+	}
+
+	return globalConfig, projectConfig, globalSecrets, projectSecrets
 }
 
 // validateMergedConfig validates the final merged configuration
