@@ -1,9 +1,10 @@
 ---
 id: task-00021
 title: Enhance response streaming with immediate header flushing
-status: To Do
+status: Done
 assignee: []
 created_date: '2025-12-12 01:57'
+updated_date: '2025-12-12 22:36'
 labels:
   - enhancement
   - performance
