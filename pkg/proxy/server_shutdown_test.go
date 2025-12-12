@@ -2,12 +2,14 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -230,11 +232,16 @@ func TestGracefulShutdown(t *testing.T) {
 	// Create server
 	server := NewServer(":0", endpoints, serverConfig) // Use port 0 for automatic port allocation
 
-	// Start server in goroutine
+	// Start server in goroutine with proper synchronization
 	var wg sync.WaitGroup
 	wg.Add(1)
-	var serverErr error
-	var actualAddr string
+
+	// Use channels for safe communication between goroutines
+	type serverResult struct {
+		addr string
+		err  error
+	}
+	resultCh := make(chan serverResult, 1)
 
 	go func() {
 		defer wg.Done()
@@ -283,28 +290,43 @@ func TestGracefulShutdown(t *testing.T) {
 		httpServer.Handler = handler
 
 		// Store the http.Server instance so gracefulShutdown() can access it
+		server.serverMu.Lock()
 		server.server = httpServer
+		server.serverMu.Unlock()
 
 		// Get actual address after binding
 		listener, err := net.Listen("tcp", server.port)
 		if err != nil {
-			serverErr = err
+			resultCh <- serverResult{err: err}
 			return
 		}
-		actualAddr = "http://" + listener.Addr().String()
+		addr := "http://" + listener.Addr().String()
 
-		serverErr = httpServer.Serve(listener)
+		// Send address back before starting Serve
+		resultCh <- serverResult{addr: addr}
+
+		// Start serving (this blocks)
+		serveErr := httpServer.Serve(listener)
+
+		// If server closed normally, don't report as error
+		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			resultCh <- serverResult{addr: addr, err: serveErr}
+		}
 	}()
 
-	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
-
-	if serverErr != nil {
-		t.Fatalf("Server failed to start: %v", serverErr)
+	// Get server address or error from goroutine
+	var result serverResult
+	select {
+	case result = <-resultCh:
+		if result.err != nil {
+			t.Fatalf("Server failed to start: %v", result.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("Server failed to start within timeout")
 	}
 
 	// Make a request
-	resp, err := http.Post(actualAddr+"/mcp/test-endpoint", "application/json", strings.NewReader(`{"test": "data"}`))
+	resp, err := http.Post(result.addr+"/mcp/test-endpoint", "application/json", strings.NewReader(`{"test": "data"}`))
 	if err != nil {
 		t.Fatalf("Error making request: %v", err)
 	}
@@ -377,8 +399,8 @@ func TestGracefulShutdownWithInFlightRequests(t *testing.T) {
 	// Start server in goroutine
 	var wg sync.WaitGroup
 	wg.Add(1)
-	var serverErr error
-	var actualAddr string
+	var serverErr atomic.Value
+	var actualAddr atomic.Value
 
 	go func() {
 		defer wg.Done()
@@ -415,23 +437,28 @@ func TestGracefulShutdownWithInFlightRequests(t *testing.T) {
 		httpServer.Handler = handler
 
 		// Store the http.Server instance so gracefulShutdown() can access it
+		server.serverMu.Lock()
 		server.server = httpServer
+		server.serverMu.Unlock()
 
 		listener, err := net.Listen("tcp", server.port)
 		if err != nil {
-			serverErr = err
+			serverErr.Store(err)
 			return
 		}
-		actualAddr = "http://" + listener.Addr().String()
+		actualAddr.Store("http://" + listener.Addr().String())
 
-		serverErr = httpServer.Serve(listener)
+		serveErr := httpServer.Serve(listener)
+		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			serverErr.Store(serveErr)
+		}
 	}()
 
 	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
 
-	if serverErr != nil {
-		t.Fatalf("Server failed to start: %v", serverErr)
+	if err := serverErr.Load(); err != nil {
+		t.Fatalf("Server failed to start: %v", err)
 	}
 
 	// Make a request in a goroutine
@@ -439,7 +466,8 @@ func TestGracefulShutdownWithInFlightRequests(t *testing.T) {
 	var requestStatus int
 	go func() {
 		defer requestCompleted.Done()
-		resp, err := http.Post(actualAddr+"/mcp/test-endpoint", "application/json", strings.NewReader(`{"test": "data"}`))
+		addr := actualAddr.Load().(string)
+		resp, err := http.Post(addr+"/mcp/test-endpoint", "application/json", strings.NewReader(`{"test": "data"}`))
 		if err != nil {
 			requestErr = err
 			return
@@ -521,8 +549,8 @@ func TestShutdownTimeout(t *testing.T) {
 	// Start server in goroutine
 	var wg sync.WaitGroup
 	wg.Add(1)
-	var serverErr error
-	var actualAddr string
+	var serverErr atomic.Value
+	var actualAddr atomic.Value
 
 	go func() {
 		defer wg.Done()
@@ -558,23 +586,28 @@ func TestShutdownTimeout(t *testing.T) {
 		httpServer.Handler = handler
 
 		// Store the http.Server instance so gracefulShutdown() can access it
+		server.serverMu.Lock()
 		server.server = httpServer
+		server.serverMu.Unlock()
 
 		listener, err := net.Listen("tcp", server.port)
 		if err != nil {
-			serverErr = err
+			serverErr.Store(err)
 			return
 		}
-		actualAddr = "http://" + listener.Addr().String()
+		actualAddr.Store("http://" + listener.Addr().String())
 
-		serverErr = httpServer.Serve(listener)
+		serveErr := httpServer.Serve(listener)
+		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			serverErr.Store(serveErr)
+		}
 	}()
 
 	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
 
-	if serverErr != nil {
-		t.Fatalf("Server failed to start: %v", serverErr)
+	if err := serverErr.Load(); err != nil {
+		t.Fatalf("Server failed to start: %v", err)
 	}
 
 	// Make a request that will hang
@@ -583,7 +616,8 @@ func TestShutdownTimeout(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		req, err := http.NewRequestWithContext(ctx, "POST", actualAddr+"/mcp/test-endpoint", strings.NewReader(`{"test": "data"}`))
+		addr := actualAddr.Load().(string)
+		req, err := http.NewRequestWithContext(ctx, "POST", addr+"/mcp/test-endpoint", strings.NewReader(`{"test": "data"}`))
 		if err != nil {
 			return
 		}
@@ -654,8 +688,8 @@ func TestServerShutdownStatus(t *testing.T) {
 	// Start server in goroutine
 	var wg sync.WaitGroup
 	wg.Add(1)
-	var serverErr error
-	var actualAddr string
+	var serverErr atomic.Value
+	var actualAddr atomic.Value
 
 	go func() {
 		defer wg.Done()
@@ -691,23 +725,28 @@ func TestServerShutdownStatus(t *testing.T) {
 		httpServer.Handler = handler
 
 		// Store the http.Server instance so gracefulShutdown() can access it
+		server.serverMu.Lock()
 		server.server = httpServer
+		server.serverMu.Unlock()
 
 		listener, err := net.Listen("tcp", server.port)
 		if err != nil {
-			serverErr = err
+			serverErr.Store(err)
 			return
 		}
-		actualAddr = "http://" + listener.Addr().String()
+		actualAddr.Store("http://" + listener.Addr().String())
 
-		serverErr = httpServer.Serve(listener)
+		serveErr := httpServer.Serve(listener)
+		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			serverErr.Store(serveErr)
+		}
 	}()
 
 	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
 
-	if serverErr != nil {
-		t.Fatalf("Server failed to start: %v", serverErr)
+	if err := serverErr.Load(); err != nil {
+		t.Fatalf("Server failed to start: %v", err)
 	}
 
 	// Initiate shutdown
@@ -719,7 +758,8 @@ func TestServerShutdownStatus(t *testing.T) {
 	// Try to make a request during shutdown
 	time.Sleep(75 * time.Millisecond) // Give shutdown a moment to start
 
-	resp, err := http.Post(actualAddr+"/mcp/test-endpoint", "application/json", strings.NewReader(`{"test": "data"}`))
+	addr := actualAddr.Load().(string)
+	resp, err := http.Post(addr+"/mcp/test-endpoint", "application/json", strings.NewReader(`{"test": "data"}`))
 	if err != nil {
 		t.Logf("Request failed as expected during shutdown: %v", err)
 	} else {

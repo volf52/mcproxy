@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,34 +21,17 @@ import (
 )
 
 // isTestEnvironment checks if the ResponseWriter is a test environment
-// This includes direct ResponseRecorder and structs that embed it
+// Uses type assertions instead of reflection to avoid race conditions
 func isTestEnvironment(w http.ResponseWriter) bool {
 	// Direct check for ResponseRecorder
 	if _, ok := w.(*httptest.ResponseRecorder); ok {
 		return true
 	}
 
-	// Use reflection to check for embedded ResponseRecorder
-	rv := reflect.ValueOf(w)
-	if rv.Kind() == reflect.Pointer {
-		rv = rv.Elem()
-	}
-	if rv.Kind() == reflect.Struct {
-		for i := 0; i < rv.NumField(); i++ {
-			field := rv.Field(i)
-			fieldType := rv.Type().Field(i)
-
-			// Check for embedded ResponseRecorder
-			if fieldType.Anonymous {
-				if field.Type() == reflect.TypeOf((*httptest.ResponseRecorder)(nil)).Elem() {
-					return true
-				}
-				// Also check for pointer to ResponseRecorder
-				if field.Type() == reflect.TypeOf((*httptest.ResponseRecorder)(nil)) {
-					return true
-				}
-			}
-		}
+	// Check if the writer embeds ResponseRecorder by checking for the Result() method
+	// which is specific to httptest.ResponseRecorder
+	if _, ok := w.(interface{ Result() *http.Response }); ok {
+		return true
 	}
 
 	return false
@@ -119,6 +101,7 @@ type Server struct {
 	serverConfig   config.ServerConfig
 	httpClient     *http.Client
 	server         *http.Server
+	serverMu       sync.RWMutex // Protects access to the server field
 	shutdownWG     sync.WaitGroup
 	shutdownOnce   sync.Once
 	shutdownCtx    context.Context
@@ -144,6 +127,11 @@ func (b *atomicBool) set(value bool) {
 
 func (b *atomicBool) get() bool {
 	return atomic.LoadInt32(&b.value) != 0
+}
+
+// IsShuttingDown returns whether the server is currently shutting down
+func (s *Server) IsShuttingDown() bool {
+	return s.isShuttingDown.get()
 }
 
 // NewServer creates a new proxy server instance
@@ -290,32 +278,22 @@ func (s *Server) gracefulShutdown() error {
 		logging.Printf("Shutting down server gracefully (timeout: %v)",
 			time.Duration(s.serverConfig.ShutdownTimeout)*time.Second)
 
-		if s.server != nil {
+		// Safely access the server field
+		s.serverMu.RLock()
+		httpServer := s.server
+		s.serverMu.RUnlock()
+
+		if httpServer != nil {
 			// Shutdown the server
-			if shutdownErr := s.server.Shutdown(shutdownCtx); shutdownErr != nil {
+			if shutdownErr := httpServer.Shutdown(shutdownCtx); shutdownErr != nil {
 				logging.Printf("Error during server shutdown: %v", shutdownErr)
 				err = shutdownErr
 			}
 		}
 
-		// Wait for all handlers to complete
-		done := make(chan struct{})
-		go func() {
-			s.shutdownWG.Wait()
-			close(done)
-		}()
-
-		// Wait for either completion or timeout
-		select {
-		case <-done:
-			logging.Printf("Server shutdown complete")
-		case <-shutdownCtx.Done():
-			logging.Printf("Server shutdown timeout, forcing exit")
-			if s.server != nil {
-				// Force close remaining connections
-				s.server.Close()
-			}
-		}
+		// The http.Server.Shutdown() method already waits for active connections to complete
+		// So we don't need additional waiting here
+		logging.Printf("Server shutdown complete")
 	})
 
 	return err
@@ -488,6 +466,9 @@ func (s *Server) handleRequestError(err error, endpointName, upstreamURL string,
 
 // streamResponse streams the upstream response back to the client with context awareness
 func (s *Server) streamResponse(ctx context.Context, w http.ResponseWriter, resp *http.Response) {
+	// Close the response body to allow connection reuse
+	defer resp.Body.Close()
+
 	// Copy response headers (filtering hop-by-hop)
 	for key, values := range resp.Header {
 		keyLower := strings.ToLower(key)
@@ -498,54 +479,32 @@ func (s *Server) streamResponse(ctx context.Context, w http.ResponseWriter, resp
 		}
 	}
 
+	// Capture response fields before concurrent access to prevent races
+	statusCode := resp.StatusCode
+	body := resp.Body
+
 	// Set response status code
-	w.WriteHeader(resp.StatusCode)
+	w.WriteHeader(statusCode)
 
 	// Flush headers immediately to reduce first-byte latency
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()
 		atomic.AddInt64(&s.flushSuccessCount, 1)
-		logging.Debugf("Headers flushed immediately for status code: %d", resp.StatusCode)
+		logging.Debugf("Headers flushed immediately for status code: %d", statusCode)
 	} else {
 		atomic.AddInt64(&s.flushSkipCount, 1)
 		logging.Debugf("ResponseWriter does not implement http.Flusher, skipping immediate flush")
 	}
 
-	// Check if we're in a test environment with a ResponseRecorder
-	// In test environments, we should stream synchronously to avoid race conditions
-	if isTestEnvironment(w) {
-		// Synchronous copy for test environments
-		_, err := io.Copy(w, resp.Body)
-		if err != nil {
-			logging.Debugf("Error streaming response body in test: %v", err)
-		}
-		return
-	}
+	// Stream response body synchronously to avoid race conditions with HTTP server
+	// The race detector flags concurrent access to response structures when using goroutines
+	_, err := io.Copy(w, body)
 
-	// For production environments, stream with context awareness for client disconnects
-	done := make(chan error, 1)
-	go func() {
-		// Use a custom writer that checks for context cancellation
-		_, err := io.Copy(w, resp.Body)
-		done <- err
-	}()
-
-	// Wait for either streaming completion or context cancellation
-	select {
-	case err := <-done:
-		if err != nil {
-			// Check if the error is due to client disconnect
-			if ctx.Err() != nil {
-				logging.Debugf("Client disconnected during response streaming: %v", ctx.Err())
-			} else {
-				logging.Printf("Error streaming response body: %v", err)
-			}
-			// Don't write to response here as headers are already sent
+	if err != nil {
+		if ctx.Err() != nil {
+			logging.Debugf("Client disconnected during response streaming: %v", ctx.Err())
+		} else {
+			logging.Printf("Error streaming response body: %v", err)
 		}
-	case <-ctx.Done():
-		// Context was canceled (likely client disconnect)
-		logging.Debugf("Response streaming canceled due to context: %v", ctx.Err())
-		// The goroutine will eventually complete or be cleaned up when resp.Body is closed
-		return
 	}
 }
