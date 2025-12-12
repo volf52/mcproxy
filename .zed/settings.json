@@ -1,0 +1,40 @@
+{
+  "languages": {
+    "Go": {
+      "language_servers": [
+        "gopls",
+        "golangci-lint"
+      ]
+    },
+    "YAML": {
+      "language_servers": [
+        "yaml-language-server"
+      ]
+    },
+    "JSON": {
+      "language_servers": [
+        "json-language-server"
+      ],
+      "formatter": {
+        "language_server": {
+          "name": "json-language-server"
+        }
+      }
+    },
+    "JSONC": {
+      "language_servers": [
+        "json-language-server"
+      ],
+      "formatter": {
+        "language_server": {
+          "name": "json-language-server"
+        }
+      }
+    },
+    "Markdown": {
+      "language_servers": [
+        "rumdl"
+      ]
+    }
+  }
+}

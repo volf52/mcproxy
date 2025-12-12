@@ -1,7 +1,3 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
 
 mcproxy is a lightweight Go service that acts as an HTTP proxy layer, exposing dynamic POST endpoints that forward requests to configured upstream HTTP/HTTPS targets. The service loads configuration from JSON files and supports secret templating in header values using `{{ var_name }}` placeholders.
