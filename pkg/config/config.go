@@ -200,6 +200,36 @@ func isValidHeaderValue(value string) error {
 	return nil
 }
 
+// validateCommand checks if a command string is valid for execution
+func validateCommand(command string) error {
+	// First check for invalid characters in the raw command string
+	for _, r := range command {
+		// Control characters (including newline, carriage return, and tab) are invalid
+		if r < 32 || r == 127 {
+			return fmt.Errorf("command component contains invalid characters")
+		}
+	}
+
+	// Check for empty components (command cannot have empty path segments)
+	components := strings.Fields(command)
+	if len(components) == 0 {
+		return fmt.Errorf("command component cannot be empty")
+	}
+
+	// Additional checks on components
+	for i, component := range components {
+		if component == "" {
+			return fmt.Errorf("command component cannot be empty")
+		}
+		// First component (executable path) should not contain spaces
+		if i == 0 && strings.ContainsAny(component, " \t") {
+			return fmt.Errorf("command executable path cannot contain spaces")
+		}
+	}
+
+	return nil
+}
+
 // validateEndpoints validates the endpoints configuration with comprehensive checks
 func validateEndpoints(endpoints map[string]Endpoint) error {
 	var errors validationErrors
@@ -231,6 +261,21 @@ func validateEndpoints(endpoints map[string]Endpoint) error {
 			continue
 		}
 
+		// Get the endpoint type before type assertion
+		var endpointType EndpointType
+		switch e := endpoint.Value.(type) {
+		case HttpEndpoint:
+			endpointType = e.Type
+		case StdioEndpoint:
+			endpointType = e.Type
+		}
+
+		// Validate the endpoint type value
+		if endpointType != EndpointTypeHTTP && endpointType != EndpointTypeStdio {
+			errors.add(fmt.Sprintf("endpoint[%s].type", name), fmt.Sprintf("invalid endpoint type '%s', must be 'http' or 'stdio'", endpointType))
+			continue
+		}
+
 		// Validate based on endpoint type using type assertions
 		switch e := endpoint.Value.(type) {
 		case HttpEndpoint:
@@ -255,6 +300,11 @@ func validateEndpoints(endpoints map[string]Endpoint) error {
 			// stdio endpoints require a command
 			if e.Command == "" {
 				errors.add(fmt.Sprintf("endpoint[%s].command", name), "command is required for stdio endpoints")
+			} else {
+				// Validate command for invalid characters
+				if err := validateCommand(e.Command); err != nil {
+					errors.add(fmt.Sprintf("endpoint[%s].command", name), err.Error())
+				}
 			}
 
 			// Validate environment variables
@@ -278,6 +328,7 @@ func validateEndpoints(endpoints map[string]Endpoint) error {
 			}
 
 		default:
+			// This should not happen with proper discriminated union, but handle gracefully
 			errors.add(fmt.Sprintf("endpoint[%s].type", name), "invalid endpoint type, must be HttpEndpoint or StdioEndpoint")
 		}
 

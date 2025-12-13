@@ -56,6 +56,11 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
+	// Default to HTTP if type is not specified
+	if discriminator.Type == "" {
+		discriminator.Type = EndpointTypeHTTP
+	}
+
 	switch discriminator.Type {
 	case EndpointTypeHTTP:
 		var httpEndpoint HttpEndpoint
@@ -77,6 +82,33 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 }
 
 func AddGeneratorReflection(ref *jsonschema.Reflector) error {
+	httpSchema, err := ref.Reflect(HttpEndpoint{})
+	if err != nil {
+		return err
+	}
+
+	stdioSchema, err := ref.Reflect(StdioEndpoint{})
+	if err != nil {
+		return err
+	}
+
+	unionSchema := jsonschema.Schema{
+		OneOf: []jsonschema.SchemaOrBool{
+			httpSchema.ToSchemaOrBool(),
+			stdioSchema.ToSchemaOrBool(),
+		},
+		// ExtraProperties: map[string]interface{}{
+		// 	"discriminator": map[string]interface{}{
+		// 		"propertyName": "type",
+		// 		"mapping": map[string]string{
+		// 			"http":  httpSchema.Ref,
+		// 			"stdio": *stdioSchema.Ref,
+		// 		},
+		// 	},
+		// },
+	}
+
+	ref.AddTypeMapping(Endpoint{}, unionSchema)
 
 	return nil
 }

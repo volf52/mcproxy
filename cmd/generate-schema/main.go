@@ -3,15 +3,31 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 
-	jsonschema "github.com/swaggest/jsonschema-go"
 	"mcproxy/pkg/config"
+
+	jsonschema "github.com/swaggest/jsonschema-go"
 )
 
 func main() {
 	// Create a reflector
 	reflector := jsonschema.Reflector{}
+
+	if e := config.AddGeneratorReflection(&reflector); e != nil {
+		log.Fatal(e)
+	}
+
+	// type Config struct {
+	// 	Foo []config.Endpoint `json:"foo"`
+	// }
+	// s, e := reflector.Reflect(Config{})
+	// if e != nil {
+	// 	log.Fatal(e)
+	// }
+	// jsonBytes, _ := json.MarshalIndent(s, "", "  ")
+	// fmt.Println(string(jsonBytes))
 
 	// Generate schema from Config struct
 	schema, err := reflector.Reflect(config.Config{})
