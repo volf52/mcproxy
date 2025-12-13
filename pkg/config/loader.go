@@ -283,10 +283,12 @@ func loadConfigFileExclusive(path string) (*Config, error) {
 		return nil, fmt.Errorf("config path cannot be empty")
 	}
 
+	logging.Printf("Attempting to load exclusive config from: %s", path)
 	// Read the file directly to handle empty files properly
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			logging.Printf("Exclusive config file not found: %s", path)
 			return nil, fmt.Errorf("config file does not exist: %s", path)
 		}
 		return nil, fmt.Errorf("failed to load exclusive config from %s: %w", path, err)
@@ -303,7 +305,7 @@ func loadConfigFileExclusive(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to load exclusive config from %s: %w", path, err)
 	}
 
-	logging.Debugf("Loaded exclusive config from %s with %d endpoints", path, len(config.Endpoints))
+	logging.Printf("Successfully loaded exclusive config from: %s (%d endpoints)", path, len(config.Endpoints))
 	return &config, nil
 }
 
@@ -315,10 +317,12 @@ func loadSecretsFileExclusive(path string) (Secrets, error) {
 		return nil, fmt.Errorf("secrets path cannot be empty")
 	}
 
+	logging.Printf("Attempting to load exclusive secrets from: %s", path)
 	// Read the file directly to handle empty files properly
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			logging.Printf("Exclusive secrets file not found: %s", path)
 			return nil, fmt.Errorf("secrets file does not exist: %s", path)
 		}
 		return nil, fmt.Errorf("failed to load exclusive secrets from %s: %w", path, err)
@@ -335,7 +339,7 @@ func loadSecretsFileExclusive(path string) (Secrets, error) {
 		return nil, fmt.Errorf("failed to load exclusive secrets from %s: %w", path, err)
 	}
 
-	logging.Debugf("Loaded exclusive secrets from %s with %d entries", path, len(secrets))
+	logging.Printf("Successfully loaded exclusive secrets from: %s (%d entries)", path, len(secrets))
 	return secrets, nil
 }
 
@@ -354,6 +358,9 @@ func LoadConfigHierarchical() (*HierarchicalLoadResult, error) {
 	if envConfigPath == "" && envSecretsPath == "" {
 		globalConfig, projectConfig, globalSecrets, projectSecrets = loadHierarchicalConfigs(result)
 	} else {
+		// Environment variables are set - check if we should use exclusive mode
+		logging.Printf("Configuration mode: Exclusive (MCPROXY_CONFIG=%s, MCPROXY_SECRETS=%s)", envConfigPath, envSecretsPath)
+		// Environment variables are set, check if we should use exclusive mode
 		// Environment variables are set, check if we should use exclusive mode
 		// First, check if all specified files exist
 		configExists := true
@@ -385,6 +392,7 @@ func LoadConfigHierarchical() (*HierarchicalLoadResult, error) {
 
 			// If both files don't exist, fall back to hierarchical mode
 			if !configExists && !secretsExists {
+				logging.Warning("Falling back to hierarchical mode: exclusive files not found")
 				globalConfig, projectConfig, globalSecrets, projectSecrets = loadHierarchicalConfigs(result)
 			} else if configExists && secretsExists {
 				// Both files exist, use exclusive mode
@@ -448,6 +456,8 @@ func loadHierarchicalConfigs(result *HierarchicalLoadResult) (*Config, *Config, 
 	result.GlobalFiles = ConfigFileInfo{Path: globalConfigPath}
 	result.ProjectFiles = ConfigFileInfo{Path: projectConfigPath}
 
+	logging.Info("Configuration mode: Hierarchical (global + project)")
+	logging.Printf("Attempting to load global config from: %s", globalConfigPath)
 	logging.Debugf("Looking for configuration files...")
 	logging.Debugf("Global config: %s", globalConfigPath)
 	logging.Debugf("Project config: %s", projectConfigPath)
@@ -457,16 +467,21 @@ func loadHierarchicalConfigs(result *HierarchicalLoadResult) (*Config, *Config, 
 	if globalConfig != nil {
 		result.GlobalFiles.Loaded = true
 		result.GlobalFiles.Endpoints = len(globalConfig.Endpoints)
-		logging.Printf("Loaded global config from %s (%d endpoints)", globalConfigPath, len(globalConfig.Endpoints))
+		logging.Printf("Successfully loaded global config from: %s (%d endpoints)", globalConfigPath, len(globalConfig.Endpoints))
+	} else {
+		logging.Printf("Global config not found at: %s", globalConfigPath)
 	}
 
+	logging.Printf("Attempting to load project config from: %s", projectConfigPath)
 	// Load project config
 	loadedProjectConfig, _ := loadConfigFromFile(projectConfigPath)
 	if loadedProjectConfig != nil {
 		projectConfig = loadedProjectConfig
 		result.ProjectFiles.Loaded = true
 		result.ProjectFiles.Endpoints = len(projectConfig.Endpoints)
-		logging.Printf("Loaded project config from %s (%d endpoints)", projectConfigPath, len(projectConfig.Endpoints))
+		logging.Printf("Successfully loaded project config from: %s (%d endpoints)", projectConfigPath, len(projectConfig.Endpoints))
+	} else {
+		logging.Printf("Project config not found at: %s", projectConfigPath)
 	}
 
 	// Hierarchical mode: load global and project secrets
@@ -476,19 +491,25 @@ func loadHierarchicalConfigs(result *HierarchicalLoadResult) (*Config, *Config, 
 	logging.Debugf("Global secrets: %s", globalSecretsPath)
 	logging.Debugf("Project secrets: %s", projectSecretsPath)
 
+	logging.Printf("Attempting to load global secrets from: %s", globalSecretsPath)
 	// Load global secrets
 	globalSecrets, _ = loadSecretsFromFile(globalSecretsPath)
 	if globalSecrets != nil {
 		result.GlobalFiles.Secrets = len(globalSecrets)
-		logging.Printf("Loaded global secrets from %s (%d entries)", globalSecretsPath, len(globalSecrets))
+		logging.Printf("Successfully loaded global secrets from: %s (%d entries)", globalSecretsPath, len(globalSecrets))
+	} else {
+		logging.Printf("Global secrets not found at: %s", globalSecretsPath)
 	}
 
+	logging.Printf("Attempting to load project secrets from: %s", projectSecretsPath)
 	// Load project secrets
 	loadedProjectSecrets, _ := loadSecretsFromFile(projectSecretsPath)
 	if loadedProjectSecrets != nil {
 		projectSecrets = loadedProjectSecrets
 		result.ProjectFiles.Secrets = len(projectSecrets)
-		logging.Printf("Loaded project secrets from %s (%d entries)", projectSecretsPath, len(projectSecrets))
+		logging.Printf("Successfully loaded project secrets from: %s (%d entries)", projectSecretsPath, len(projectSecrets))
+	} else {
+		logging.Printf("Project secrets not found at: %s", projectSecretsPath)
 	}
 
 	return globalConfig, projectConfig, globalSecrets, projectSecrets
