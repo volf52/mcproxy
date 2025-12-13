@@ -26,9 +26,15 @@ type HTTPEndpoint struct {
 
 // NewHTTPEndpoint creates a new HTTP endpoint
 func NewHTTPEndpoint(name string, cfg config.Endpoint, secrets map[string]string) (Endpoint, error) {
+	// Extract HttpEndpoint from the discriminated union
+	httpEndpoint, ok := cfg.Value.(config.HttpEndpoint)
+	if !ok {
+		return nil, fmt.Errorf("endpoint is not an HTTP endpoint")
+	}
+
 	// Process secret templates in headers
 	processedHeaders := make(map[string]string)
-	for headerName, headerValue := range cfg.Headers {
+	for headerName, headerValue := range httpEndpoint.Headers {
 		resolvedValue, missingVars, err := substituteTemplate(headerValue, secrets)
 		if err != nil {
 			logging.Printf("Error processing header '%s' for endpoint '%s': %v", headerName, name, err)
@@ -45,18 +51,18 @@ func NewHTTPEndpoint(name string, cfg config.Endpoint, secrets map[string]string
 
 	// Set defaults
 	timeout := 60 * time.Second
-	if cfg.Timeout != nil {
-		timeout = *cfg.Timeout
+	if httpEndpoint.Timeout != nil {
+		timeout = *httpEndpoint.Timeout
 	}
 
 	maxBodySize := int64(10 * 1024 * 1024) // 10MB
-	if cfg.MaxBodySize != nil {
-		maxBodySize = *cfg.MaxBodySize
+	if httpEndpoint.MaxBodySize != nil {
+		maxBodySize = *httpEndpoint.MaxBodySize
 	}
 
 	return &HTTPEndpoint{
 		name:        name,
-		url:         cfg.Url,
+		url:         httpEndpoint.Url,
 		headers:     processedHeaders,
 		timeout:     timeout,
 		maxBodySize: maxBodySize,

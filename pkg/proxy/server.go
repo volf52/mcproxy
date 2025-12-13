@@ -187,7 +187,21 @@ func (s *Server) Start() error {
 		handler := s.createProxyHandler(name, endpoint)
 		pattern := fmt.Sprintf("/mcp/%s", name)
 		mux.HandleFunc(pattern, handler)
-		logging.LogEndpointRegistration(name, endpoint.Url, "/mcp", endpoint.Headers)
+
+		// Extract endpoint info for logging
+		var endpointURL string
+		var headers map[string]string
+
+		switch e := endpoint.Value.(type) {
+		case config.HttpEndpoint:
+			endpointURL = e.Url
+			headers = e.Headers
+		case config.StdioEndpoint:
+			endpointURL = e.Command // Log command for stdio endpoints
+			headers = nil
+		}
+
+		logging.LogEndpointRegistration(name, endpointURL, "/mcp", headers)
 	}
 
 	// Add a root handler for basic info
@@ -234,7 +248,21 @@ func (s *Server) listenAndServe() error {
 		handlerFunc := s.createProxyHandler(name, endpoint)
 		pattern := fmt.Sprintf("/mcp/%s", name)
 		mux.HandleFunc(pattern, handlerFunc)
-		logging.LogEndpointRegistration(name, endpoint.Url, "/mcp", endpoint.Headers)
+
+		// Extract endpoint info for logging
+		var endpointURL string
+		var headers map[string]string
+
+		switch e := endpoint.Value.(type) {
+		case config.HttpEndpoint:
+			endpointURL = e.Url
+			headers = e.Headers
+		case config.StdioEndpoint:
+			endpointURL = e.Command // Log command for stdio endpoints
+			headers = nil
+		}
+
+		logging.LogEndpointRegistration(name, endpointURL, "/mcp", headers)
 	}
 
 	// Add root handler
@@ -330,9 +358,17 @@ func (s *Server) createProxyHandler(name string, endpoint config.Endpoint) http.
 		default:
 		}
 
+		// Extract endpoint URL for error reporting
+		var endpointURL string
+		if httpEndpoint, ok := endpoint.Value.(config.HttpEndpoint); ok {
+			endpointURL = httpEndpoint.Url
+		} else {
+			endpointURL = "unknown"
+		}
+
 		// Check request size against limits
 		if err := s.checkRequestSize(r, endpoint); err != nil {
-			s.handleRequestError(err, name, endpoint.Url, w)
+			s.handleRequestError(err, name, endpointURL, w)
 			return
 		}
 
@@ -342,14 +378,14 @@ func (s *Server) createProxyHandler(name string, endpoint config.Endpoint) http.
 		// Create the upstream request with streaming
 		upstreamReq, err := s.createUpstreamRequest(ctx, r, endpoint, maxSize)
 		if err != nil {
-			s.handleRequestError(err, name, endpoint.Url, w)
+			s.handleRequestError(err, name, endpointURL, w)
 			return
 		}
 
 		// Execute the upstream request
 		resp, err := s.httpClient.Do(upstreamReq)
 		if err != nil {
-			s.handleRequestError(err, name, endpoint.Url, w)
+			s.handleRequestError(err, name, endpointURL, w)
 			return
 		}
 		defer resp.Body.Close()
@@ -361,6 +397,12 @@ func (s *Server) createProxyHandler(name string, endpoint config.Endpoint) http.
 
 // createUpstreamRequest creates a new HTTP request to forward to the upstream URL
 func (s *Server) createUpstreamRequest(ctx context.Context, r *http.Request, endpoint config.Endpoint, maxSize int64) (*http.Request, error) {
+	// Extract endpoint details based on type
+	httpEndpoint, ok := endpoint.Value.(config.HttpEndpoint)
+	if !ok {
+		return nil, fmt.Errorf("endpoint is not an HTTP endpoint")
+	}
+
 	// Apply size limit to request body
 	var bodyReader io.Reader = r.Body
 	if maxSize > 0 {
@@ -374,7 +416,7 @@ func (s *Server) createUpstreamRequest(ctx context.Context, r *http.Request, end
 	}
 
 	// Create request with context and streaming body
-	upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.Url, bodyReader)
+	upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, httpEndpoint.Url, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create upstream request: %w", err)
 	}
@@ -390,7 +432,7 @@ func (s *Server) createUpstreamRequest(ctx context.Context, r *http.Request, end
 	upstreamReq.Header = filteredHeaders
 
 	// Add/override configured headers
-	for headerName, headerValue := range endpoint.Headers {
+	for headerName, headerValue := range httpEndpoint.Headers {
 		upstreamReq.Header.Set(headerName, headerValue)
 		// Log header setting without exposing actual values
 		logging.DebugfSanitized("Setting header for upstream request: %s", headerName)
@@ -402,7 +444,7 @@ func (s *Server) createUpstreamRequest(ctx context.Context, r *http.Request, end
 	}
 
 	// Set proper Host header based on upstream URL
-	if parsedURL, err := url.Parse(endpoint.Url); err == nil {
+	if parsedURL, err := url.Parse(httpEndpoint.Url); err == nil {
 		upstreamReq.Host = parsedURL.Host
 	}
 
@@ -411,8 +453,16 @@ func (s *Server) createUpstreamRequest(ctx context.Context, r *http.Request, end
 
 // getEndpointTimeout returns the timeout for an endpoint
 func (s *Server) getEndpointTimeout(endpoint config.Endpoint) time.Duration {
-	if endpoint.Timeout != nil && *endpoint.Timeout > 0 {
-		return *endpoint.Timeout
+	// Extract timeout from endpoint based on type
+	switch e := endpoint.Value.(type) {
+	case config.HttpEndpoint:
+		if e.Timeout != nil && *e.Timeout > 0 {
+			return *e.Timeout
+		}
+	case config.StdioEndpoint:
+		if e.Timeout != nil && *e.Timeout > 0 {
+			return *e.Timeout
+		}
 	}
 	// Return default timeout
 	return 60 * time.Second
@@ -420,8 +470,16 @@ func (s *Server) getEndpointTimeout(endpoint config.Endpoint) time.Duration {
 
 // getEndpointMaxBodySize returns the max body size for an endpoint
 func (s *Server) getEndpointMaxBodySize(endpoint config.Endpoint) int64 {
-	if endpoint.MaxBodySize != nil && *endpoint.MaxBodySize > 0 {
-		return *endpoint.MaxBodySize
+	// Extract max body size from endpoint based on type
+	switch e := endpoint.Value.(type) {
+	case config.HttpEndpoint:
+		if e.MaxBodySize != nil && *e.MaxBodySize > 0 {
+			return *e.MaxBodySize
+		}
+	case config.StdioEndpoint:
+		if e.MaxBodySize != nil && *e.MaxBodySize > 0 {
+			return *e.MaxBodySize
+		}
 	}
 	// Return default max size (10MB)
 	return 10 * 1024 * 1024
@@ -431,13 +489,21 @@ func (s *Server) getEndpointMaxBodySize(endpoint config.Endpoint) int64 {
 func (s *Server) checkRequestSize(r *http.Request, endpoint config.Endpoint) error {
 	maxSize := s.getEndpointMaxBodySize(endpoint)
 
+	// Extract URL for error reporting (only for HTTP endpoints)
+	var endpointURL string
+	if httpEndpoint, ok := endpoint.Value.(config.HttpEndpoint); ok {
+		endpointURL = httpEndpoint.Url
+	} else {
+		endpointURL = "unknown"
+	}
+
 	// Check Content-Length header if present
 	if contentLength := r.ContentLength; contentLength > 0 {
 		if contentLength > maxSize {
 			return &RequestTooLargeError{
 				Size:     contentLength,
 				MaxSize:  maxSize,
-				Endpoint: endpoint.Url,
+				Endpoint: endpointURL,
 			}
 		}
 	}

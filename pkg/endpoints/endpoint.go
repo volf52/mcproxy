@@ -40,18 +40,18 @@ func NewDefaultFactory() *DefaultFactory {
 
 // CreateEndpoint creates an endpoint based on the configuration type
 func (f *DefaultFactory) CreateEndpoint(name string, cfg config.Endpoint, secrets map[string]string) (Endpoint, error) {
-	// Default to HTTP type if not specified
-	endpointType := cfg.Type
-	if endpointType == "" {
-		endpointType = config.EndpointTypeHTTP
+	// Check if endpoint value is nil
+	if cfg.Value == nil {
+		return nil, fmt.Errorf("endpoint value cannot be nil")
 	}
 
-	switch endpointType {
-	case config.EndpointTypeHTTP:
+	// Use type assertion to determine endpoint type
+	switch cfg.Value.(type) {
+	case config.HttpEndpoint:
 		return NewHTTPEndpoint(name, cfg, secrets)
-	case config.EndpointTypeStdio:
+	case config.StdioEndpoint:
 		return NewStdioEndpoint(name, cfg, secrets)
 	default:
-		return nil, fmt.Errorf("unsupported endpoint type: %s", endpointType)
+		return nil, fmt.Errorf("unsupported endpoint type: %T", cfg.Value)
 	}
 }

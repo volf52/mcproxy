@@ -32,6 +32,7 @@ func TestLoadConfig(t *testing.T) {
 	configContent := map[string]interface{}{
 		"endpoints": map[string]interface{}{
 			"test": map[string]interface{}{
+				"type": "http",
 				"url": "https://example.com",
 				"headers": map[string]interface{}{
 					"Authorization": "Bearer {{token}}",
@@ -58,8 +59,14 @@ func TestLoadConfig(t *testing.T) {
 		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
 	}
 
-	if config.Endpoints["test"].Url != "https://example.com" {
-		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].Url)
+	// Extract endpoint details using type assertion
+	httpEndpoint, ok := config.Endpoints["test"].Value.(HttpEndpoint)
+	if !ok {
+		t.Fatalf("Expected HttpEndpoint, got %T", config.Endpoints["test"].Value)
+	}
+
+	if httpEndpoint.Url != "https://example.com" {
+		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", httpEndpoint.Url)
 	}
 
 	if config.LogFile != "/tmp/test.log" {
@@ -274,23 +281,29 @@ func TestProcessSecretTemplates(t *testing.T) {
 	config := &Config{
 		Endpoints: map[string]Endpoint{
 			"valid": {
-				Url: "https://api.example.com",
-				Headers: map[string]string{
-					"Authorization": "Bearer {{api_token}}",
-					"Content-Type":  "application/json",
+				Value: HttpEndpoint{
+					Url: "https://api.example.com",
+					Headers: map[string]string{
+						"Authorization": "Bearer {{api_token}}",
+						"Content-Type":  "application/json",
+					},
 				},
 			},
 			"missing": {
-				Url: "https://api.example.com",
-				Headers: map[string]string{
-					"Authorization": "Bearer {{missing_token}}",
+				Value: HttpEndpoint{
+					Url: "https://api.example.com",
+					Headers: map[string]string{
+						"Authorization": "Bearer {{missing_token}}",
+					},
 				},
 			},
 			"mixed": {
-				Url: "https://api.example.com",
-				Headers: map[string]string{
-					"Good": "Bearer {{api_token}}",
-					"Bad":  "Key {{missing_key}}",
+				Value: HttpEndpoint{
+					Url: "https://api.example.com",
+					Headers: map[string]string{
+						"Good": "Bearer {{api_token}}",
+						"Bad":  "Key {{missing_key}}",
+					},
 				},
 			},
 		},
@@ -323,8 +336,13 @@ func TestProcessSecretTemplates(t *testing.T) {
 
 	// Check the processed endpoint has correct headers
 	validEndpoint := processed["valid"]
-	if validEndpoint.Headers["Authorization"] != "Bearer secret123" {
-		t.Errorf("Expected resolved Authorization header, got '%s'", validEndpoint.Headers["Authorization"])
+	httpEndpoint, ok := validEndpoint.Value.(HttpEndpoint)
+	if !ok {
+		t.Fatalf("Expected HttpEndpoint, got %T", validEndpoint.Value)
+	}
+
+	if httpEndpoint.Headers["Authorization"] != "Bearer secret123" {
+		t.Errorf("Expected resolved Authorization header, got '%s'", httpEndpoint.Headers["Authorization"])
 	}
 }
 
@@ -332,30 +350,33 @@ func TestProcessSecretTemplatesWithEnvVars(t *testing.T) {
 	config := &Config{
 		Endpoints: map[string]Endpoint{
 			"stdio-endpoint": {
-				Type:    EndpointTypeStdio,
-				Command: []string{"/usr/local/bin/mcp-server"},
-				Env: map[string]string{
-					"API_KEY":   "{{api_token}}",
-					"LOG_LEVEL": "debug",
-					"DB_URL":    "postgres://{{db_user}}:{{db_pass}}@localhost:5432/db",
+				Value: StdioEndpoint{
+					Type:    EndpointTypeStdio,
+					Command: "/usr/local/bin/mcp-server",
+					Env: map[string]string{
+						"API_KEY":   "{{api_token}}",
+						"LOG_LEVEL": "debug",
+						"DB_URL":    "postgres://{{db_user}}:{{db_pass}}@localhost:5432/db",
+					},
 				},
 			},
 			"http-endpoint": {
-				Type: EndpointTypeHTTP,
-				Url:  "https://api.example.com",
-				Headers: map[string]string{
-					"Authorization": "Bearer {{api_token}}",
+				Value: HttpEndpoint{
+					Type: EndpointTypeHTTP,
+					Url:  "https://api.example.com",
+					Headers: map[string]string{
+						"Authorization": "Bearer {{api_token}}",
+					},
 				},
 			},
 			"mixed-endpoint": {
-				Type:    EndpointTypeStdio,
-				Command: []string{"/usr/local/bin/mcp-server"},
-				Headers: map[string]string{
-					"X-API-Version": "{{api_version}}",
-				},
-				Env: map[string]string{
-					"SERVER_URL": "{{server_url}}",
-					"SECRET_KEY": "{{secret_key}}",
+				Value: StdioEndpoint{
+					Type:    EndpointTypeStdio,
+					Command: "/usr/local/bin/mcp-server",
+					Env: map[string]string{
+						"SERVER_URL": "{{server_url}}",
+						"SECRET_KEY": "{{secret_key}}",
+					},
 				},
 			},
 		},
@@ -383,32 +404,41 @@ func TestProcessSecretTemplatesWithEnvVars(t *testing.T) {
 
 	// Check stdio endpoint environment variables
 	stdioEndpoint := processed["stdio-endpoint"]
-	if stdioEndpoint.Env["API_KEY"] != "secret123" {
-		t.Errorf("Expected API_KEY 'secret123', got '%s'", stdioEndpoint.Env["API_KEY"])
+	stdioEp, ok := stdioEndpoint.Value.(StdioEndpoint)
+	if !ok {
+		t.Fatalf("Expected StdioEndpoint, got %T", stdioEndpoint.Value)
 	}
-	if stdioEndpoint.Env["LOG_LEVEL"] != "debug" {
-		t.Errorf("Expected LOG_LEVEL 'debug', got '%s'", stdioEndpoint.Env["LOG_LEVEL"])
+	if stdioEp.Env["API_KEY"] != "secret123" {
+		t.Errorf("Expected API_KEY 'secret123', got '%s'", stdioEp.Env["API_KEY"])
 	}
-	if stdioEndpoint.Env["DB_URL"] != "postgres://myuser:mypass@localhost:5432/db" {
-		t.Errorf("Expected DB_URL 'postgres://myuser:mypass@localhost:5432/db', got '%s'", stdioEndpoint.Env["DB_URL"])
+	if stdioEp.Env["LOG_LEVEL"] != "debug" {
+		t.Errorf("Expected LOG_LEVEL 'debug', got '%s'", stdioEp.Env["LOG_LEVEL"])
+	}
+	if stdioEp.Env["DB_URL"] != "postgres://myuser:mypass@localhost:5432/db" {
+		t.Errorf("Expected DB_URL 'postgres://myuser:mypass@localhost:5432/db', got '%s'", stdioEp.Env["DB_URL"])
 	}
 
 	// Check HTTP endpoint headers
 	httpEndpoint := processed["http-endpoint"]
-	if httpEndpoint.Headers["Authorization"] != "Bearer secret123" {
-		t.Errorf("Expected Authorization header 'Bearer secret123', got '%s'", httpEndpoint.Headers["Authorization"])
+	httpEp, ok := httpEndpoint.Value.(HttpEndpoint)
+	if !ok {
+		t.Fatalf("Expected HttpEndpoint, got %T", httpEndpoint.Value)
+	}
+	if httpEp.Headers["Authorization"] != "Bearer secret123" {
+		t.Errorf("Expected Authorization header 'Bearer secret123', got '%s'", httpEp.Headers["Authorization"])
 	}
 
-	// Check mixed endpoint
+	// Check mixed endpoint (stdio type)
 	mixedEndpoint := processed["mixed-endpoint"]
-	if mixedEndpoint.Headers["X-API-Version"] != "v1.0" {
-		t.Errorf("Expected X-API-Version header 'v1.0', got '%s'", mixedEndpoint.Headers["X-API-Version"])
+	mixedEp, ok := mixedEndpoint.Value.(StdioEndpoint)
+	if !ok {
+		t.Fatalf("Expected StdioEndpoint, got %T", mixedEndpoint.Value)
 	}
-	if mixedEndpoint.Env["SERVER_URL"] != "https://api.example.com" {
-		t.Errorf("Expected SERVER_URL 'https://api.example.com', got '%s'", mixedEndpoint.Env["SERVER_URL"])
+	if mixedEp.Env["SERVER_URL"] != "https://api.example.com" {
+		t.Errorf("Expected SERVER_URL 'https://api.example.com', got '%s'", mixedEp.Env["SERVER_URL"])
 	}
-	if mixedEndpoint.Env["SECRET_KEY"] != "key456" {
-		t.Errorf("Expected SECRET_KEY 'key456', got '%s'", mixedEndpoint.Env["SECRET_KEY"])
+	if mixedEp.Env["SECRET_KEY"] != "key456" {
+		t.Errorf("Expected SECRET_KEY 'key456', got '%s'", mixedEp.Env["SECRET_KEY"])
 	}
 }
 
@@ -416,25 +446,31 @@ func TestProcessSecretTemplatesWithMissingEnvVars(t *testing.T) {
 	config := &Config{
 		Endpoints: map[string]Endpoint{
 			"stdio-missing-env": {
-				Type:    EndpointTypeStdio,
-				Command: []string{"/usr/local/bin/mcp-server"},
-				Env: map[string]string{
-					"API_KEY":   "{{missing_token}}",
-					"LOG_LEVEL": "debug",
+				Value: StdioEndpoint{
+					Type:    EndpointTypeStdio,
+					Command: "/usr/local/bin/mcp-server",
+					Env: map[string]string{
+						"API_KEY":   "{{missing_token}}",
+						"LOG_LEVEL": "debug",
+					},
 				},
 			},
 			"http-missing-header": {
-				Type: EndpointTypeHTTP,
-				Url:  "https://api.example.com",
-				Headers: map[string]string{
-					"Authorization": "Bearer {{missing_auth}}",
+				Value: HttpEndpoint{
+					Type: EndpointTypeHTTP,
+					Url:  "https://api.example.com",
+					Headers: map[string]string{
+						"Authorization": "Bearer {{missing_auth}}",
+					},
 				},
 			},
 			"stdio-valid": {
-				Type:    EndpointTypeStdio,
-				Command: []string{"/usr/local/bin/mcp-server"},
-				Env: map[string]string{
-					"LOG_LEVEL": "info",
+				Value: StdioEndpoint{
+					Type:    EndpointTypeStdio,
+					Command: "/usr/local/bin/mcp-server",
+					Env: map[string]string{
+						"LOG_LEVEL": "info",
+					},
 				},
 			},
 		},
@@ -467,28 +503,36 @@ func TestProcessSecretTemplatesWithMissingEnvVars(t *testing.T) {
 
 	// Verify the valid endpoint's environment variables
 	validEndpoint := processed["stdio-valid"]
-	if validEndpoint.Env["LOG_LEVEL"] != "info" {
-		t.Errorf("Expected LOG_LEVEL 'info', got '%s'", validEndpoint.Env["LOG_LEVEL"])
+	stdioEp, ok := validEndpoint.Value.(StdioEndpoint)
+	if !ok {
+		t.Fatalf("Expected StdioEndpoint, got %T", validEndpoint.Value)
+	}
+	if stdioEp.Env["LOG_LEVEL"] != "info" {
+		t.Errorf("Expected LOG_LEVEL 'info', got '%s'", stdioEp.Env["LOG_LEVEL"])
 	}
 }
 
 func TestBackwardCompatibility_HTTPOnly(t *testing.T) {
-	// Test that HTTP-only configs without type field still work
+	// Test that HTTP-only configs work with explicit type
 	config := &Config{
 		Endpoints: map[string]Endpoint{
 			"legacy-http": {
-				// Type field omitted - should default to HTTP
-				Url: "https://api.example.com",
-				Headers: map[string]string{
-					"Authorization": "Bearer {{api_token}}",
-					"Content-Type":  "application/json",
+				Value: HttpEndpoint{
+					Type: EndpointTypeHTTP, // Need to explicitly set type in discriminated union
+					Url: "https://api.example.com",
+					Headers: map[string]string{
+						"Authorization": "Bearer {{api_token}}",
+						"Content-Type":  "application/json",
+					},
 				},
 			},
 			"modern-http": {
-				Type: EndpointTypeHTTP,
-				Url:  "https://api.example.com",
-				Headers: map[string]string{
-					"Authorization": "Bearer {{api_token}}",
+				Value: HttpEndpoint{
+					Type: EndpointTypeHTTP,
+					Url:  "https://api.example.com",
+					Headers: map[string]string{
+						"Authorization": "Bearer {{api_token}}",
+					},
 				},
 			},
 		},
@@ -511,17 +555,25 @@ func TestBackwardCompatibility_HTTPOnly(t *testing.T) {
 
 	// Check legacy HTTP endpoint works
 	legacyEndpoint := processed["legacy-http"]
-	if legacyEndpoint.Type != "" && legacyEndpoint.Type != EndpointTypeHTTP {
-		t.Errorf("Expected legacy endpoint to be treated as HTTP, got type '%s'", legacyEndpoint.Type)
+	legacyHttp, ok := legacyEndpoint.Value.(HttpEndpoint)
+	if !ok {
+		t.Fatalf("Expected HttpEndpoint for legacy, got %T", legacyEndpoint.Value)
 	}
-	if legacyEndpoint.Headers["Authorization"] != "Bearer secret123" {
-		t.Errorf("Expected resolved Authorization header for legacy endpoint, got '%s'", legacyEndpoint.Headers["Authorization"])
+	if legacyHttp.Type != EndpointTypeHTTP {
+		t.Errorf("Expected legacy endpoint to be HTTP, got type '%s'", legacyHttp.Type)
+	}
+	if legacyHttp.Headers["Authorization"] != "Bearer secret123" {
+		t.Errorf("Expected resolved Authorization header for legacy endpoint, got '%s'", legacyHttp.Headers["Authorization"])
 	}
 
 	// Check modern HTTP endpoint works
 	modernEndpoint := processed["modern-http"]
-	if modernEndpoint.Headers["Authorization"] != "Bearer secret123" {
-		t.Errorf("Expected resolved Authorization header for modern endpoint, got '%s'", modernEndpoint.Headers["Authorization"])
+	modernHttp, ok := modernEndpoint.Value.(HttpEndpoint)
+	if !ok {
+		t.Fatalf("Expected HttpEndpoint for modern, got %T", modernEndpoint.Value)
+	}
+	if modernHttp.Headers["Authorization"] != "Bearer secret123" {
+		t.Errorf("Expected resolved Authorization header for modern endpoint, got '%s'", modernHttp.Headers["Authorization"])
 	}
 
 	// Validate the configuration (this should pass)
@@ -535,10 +587,11 @@ func TestBackwardCompatibility_ConfigLoading(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")
 
-	// Create a config without type fields (legacy format)
-	legacyConfigContent := map[string]interface{}{
+	// Create a config with type fields (new format)
+	newConfigContent := map[string]interface{}{
 		"endpoints": map[string]interface{}{
 			"api": map[string]interface{}{
+				"type": "http",
 				"url": "https://api.example.com",
 				"headers": map[string]interface{}{
 					"Authorization": "Bearer {{api_token}}",
@@ -546,7 +599,8 @@ func TestBackwardCompatibility_ConfigLoading(t *testing.T) {
 				},
 			},
 			"webhook": map[string]interface{}{
-				"url":     "https://webhook.example.com",
+				"type": "http",
+				"url": "https://webhook.example.com",
 				"timeout": 30,
 			},
 		},
@@ -554,7 +608,7 @@ func TestBackwardCompatibility_ConfigLoading(t *testing.T) {
 		"globalTimeout": 60,
 	}
 
-	data, _ := json.Marshal(legacyConfigContent)
+	data, _ := json.Marshal(newConfigContent)
 	os.WriteFile(configPath, data, 0o644)
 
 	secretsPath := filepath.Join(tmpDir, "secrets.json")
@@ -587,18 +641,26 @@ func TestBackwardCompatibility_ConfigLoading(t *testing.T) {
 
 	// Check API endpoint
 	apiEndpoint := config.Endpoints["api"]
-	if apiEndpoint.Url != "https://api.example.com" {
-		t.Errorf("Expected API URL 'https://api.example.com', got '%s'", apiEndpoint.Url)
+	apiHttp, ok := apiEndpoint.Value.(HttpEndpoint)
+	if !ok {
+		t.Fatalf("Expected HttpEndpoint for API, got %T", apiEndpoint.Value)
 	}
-	// Type should be empty (not specified) but validation should treat it as HTTP
-	if apiEndpoint.Type != "" {
-		t.Errorf("Expected empty Type for legacy endpoint, got '%s'", apiEndpoint.Type)
+	if apiHttp.Url != "https://api.example.com" {
+		t.Errorf("Expected API URL 'https://api.example.com', got '%s'", apiHttp.Url)
+	}
+	// Type should be HTTP since it's explicitly set in HttpEndpoint
+	if apiHttp.Type != EndpointTypeHTTP {
+		t.Errorf("Expected HTTP Type for endpoint, got '%s'", apiHttp.Type)
 	}
 
 	// Check webhook endpoint
 	webhookEndpoint := config.Endpoints["webhook"]
-	if webhookEndpoint.Url != "https://webhook.example.com" {
-		t.Errorf("Expected webhook URL 'https://webhook.example.com', got '%s'", webhookEndpoint.Url)
+	webhookHttp, ok := webhookEndpoint.Value.(HttpEndpoint)
+	if !ok {
+		t.Fatalf("Expected HttpEndpoint for webhook, got %T", webhookEndpoint.Value)
+	}
+	if webhookHttp.Url != "https://webhook.example.com" {
+		t.Errorf("Expected webhook URL 'https://webhook.example.com', got '%s'", webhookHttp.Url)
 	}
 
 	// Process secret templates
@@ -609,8 +671,12 @@ func TestBackwardCompatibility_ConfigLoading(t *testing.T) {
 
 	// Verify secret templating works
 	processedAPI := processed["api"]
-	if processedAPI.Headers["Authorization"] != "Bearer secret123" {
-		t.Errorf("Expected resolved Authorization header, got '%s'", processedAPI.Headers["Authorization"])
+	processedHttp, ok := processedAPI.Value.(HttpEndpoint)
+	if !ok {
+		t.Fatalf("Expected HttpEndpoint for processed API, got %T", processedAPI.Value)
+	}
+	if processedHttp.Headers["Authorization"] != "Bearer secret123" {
+		t.Errorf("Expected resolved Authorization header, got '%s'", processedHttp.Headers["Authorization"])
 	}
 
 	// Validate the configuration
@@ -621,20 +687,26 @@ func TestBackwardCompatibility_ConfigLoading(t *testing.T) {
 }
 
 func TestBackwardCompatibility_MixedConfig(t *testing.T) {
-	// Test that configs with mixed explicit and implicit types work
+	// Test that configs with mixed explicit types work
 	config := &Config{
 		Endpoints: map[string]Endpoint{
 			"legacy": {
-				// No type field - should default to HTTP
-				Url: "https://legacy.example.com",
+				Value: HttpEndpoint{
+					Type: EndpointTypeHTTP, // Must be explicit in discriminated union
+					Url: "https://legacy.example.com",
+				},
 			},
 			"modern-http": {
-				Type: EndpointTypeHTTP,
-				Url:  "https://modern.example.com",
+				Value: HttpEndpoint{
+					Type: EndpointTypeHTTP,
+					Url:  "https://modern.example.com",
+				},
 			},
 			"modern-stdio": {
-				Type:    EndpointTypeStdio,
-				Command: []string{"/usr/local/bin/stdio-server"},
+				Value: StdioEndpoint{
+					Type:    EndpointTypeStdio,
+					Command: "/usr/local/bin/stdio-server",
+				},
 			},
 		},
 	}
@@ -1000,6 +1072,7 @@ func TestLoadConfigFromFile(t *testing.T) {
 	configContent := map[string]interface{}{
 		"endpoints": map[string]interface{}{
 			"test": map[string]interface{}{
+				"type": "http",
 				"url": "https://example.com",
 			},
 		},
@@ -1064,12 +1137,16 @@ func TestMergeConfigs(t *testing.T) {
 	globalConfig := &Config{
 		Endpoints: map[string]Endpoint{
 			"global-only": {
-				Url:     "https://global.com",
-				Headers: map[string]string{"Global": "true"},
+				Value: HttpEndpoint{
+					Url:     "https://global.com",
+					Headers: map[string]string{"Global": "true"},
+				},
 			},
 			"shared": {
-				Url:     "https://global-shared.com",
-				Headers: map[string]string{"Source": "global"},
+				Value: HttpEndpoint{
+					Url:     "https://global-shared.com",
+					Headers: map[string]string{"Source": "global"},
+				},
 			},
 		},
 		LogFile: "/var/log/global.log",
@@ -1078,12 +1155,16 @@ func TestMergeConfigs(t *testing.T) {
 	projectConfig := &Config{
 		Endpoints: map[string]Endpoint{
 			"project-only": {
-				Url:     "https://project.com",
-				Headers: map[string]string{"Project": "true"},
+				Value: HttpEndpoint{
+					Url:     "https://project.com",
+					Headers: map[string]string{"Project": "true"},
+				},
 			},
 			"shared": {
-				Url:     "https://project-shared.com",
-				Headers: map[string]string{"Source": "project"},
+				Value: HttpEndpoint{
+					Url:     "https://project-shared.com",
+					Headers: map[string]string{"Source": "project"},
+				},
 			},
 		},
 		LogFile: "/var/log/project.log",
@@ -1097,20 +1178,32 @@ func TestMergeConfigs(t *testing.T) {
 	}
 
 	// Check global-only endpoint
-	if merged.Endpoints["global-only"].Url != "https://global.com" {
+	globalOnlyHttp, ok := merged.Endpoints["global-only"].Value.(HttpEndpoint)
+	if !ok {
+		t.Fatal("Expected HttpEndpoint for global-only")
+	}
+	if globalOnlyHttp.Url != "https://global.com" {
 		t.Error("Global-only endpoint not preserved correctly")
 	}
 
 	// Check project-only endpoint
-	if merged.Endpoints["project-only"].Url != "https://project.com" {
+	projectOnlyHttp, ok := merged.Endpoints["project-only"].Value.(HttpEndpoint)
+	if !ok {
+		t.Fatal("Expected HttpEndpoint for project-only")
+	}
+	if projectOnlyHttp.Url != "https://project.com" {
 		t.Error("Project-only endpoint not added correctly")
 	}
 
 	// Check that project overrides global for shared endpoint
-	if merged.Endpoints["shared"].Url != "https://project-shared.com" {
+	sharedHttp, ok := merged.Endpoints["shared"].Value.(HttpEndpoint)
+	if !ok {
+		t.Fatal("Expected HttpEndpoint for shared")
+	}
+	if sharedHttp.Url != "https://project-shared.com" {
 		t.Error("Project config should override global config for shared endpoint")
 	}
-	if merged.Endpoints["shared"].Headers["Source"] != "project" {
+	if sharedHttp.Headers["Source"] != "project" {
 		t.Error("Project headers should override global headers")
 	}
 
@@ -1165,6 +1258,7 @@ func TestLoadConfigHierarchical(t *testing.T) {
 	globalConfigContent := map[string]interface{}{
 		"endpoints": map[string]interface{}{
 			"global": map[string]interface{}{
+				"type": "http",
 				"url": "https://global.com",
 			},
 		},
@@ -1186,6 +1280,7 @@ func TestLoadConfigHierarchical(t *testing.T) {
 	projectConfigContent := map[string]interface{}{
 		"endpoints": map[string]interface{}{
 			"project": map[string]interface{}{
+				"type": "http",
 				"url": "https://project.com",
 			},
 		},
@@ -1238,12 +1333,20 @@ func TestLoadConfigHierarchical(t *testing.T) {
 	}
 
 	// Check global endpoint
-	if result.Config.Endpoints["global"].Url != "https://global.com" {
+	globalHttp, ok := result.Config.Endpoints["global"].Value.(HttpEndpoint)
+	if !ok {
+		t.Fatal("Expected HttpEndpoint for global endpoint")
+	}
+	if globalHttp.Url != "https://global.com" {
 		t.Error("Global endpoint not loaded correctly")
 	}
 
 	// Check project endpoint
-	if result.Config.Endpoints["project"].Url != "https://project.com" {
+	projectHttp, ok := result.Config.Endpoints["project"].Value.(HttpEndpoint)
+	if !ok {
+		t.Fatal("Expected HttpEndpoint for project endpoint")
+	}
+	if projectHttp.Url != "https://project.com" {
 		t.Error("Project endpoint not loaded correctly")
 	}
 
@@ -1315,7 +1418,9 @@ func TestValidateMergedConfig(t *testing.T) {
 			config: &Config{
 				Endpoints: map[string]Endpoint{
 					"test": {
-						Url: "https://example.com",
+						Value: HttpEndpoint{
+							Url: "https://example.com",
+						},
 					},
 				},
 			},
@@ -1326,7 +1431,9 @@ func TestValidateMergedConfig(t *testing.T) {
 			config: &Config{
 				Endpoints: map[string]Endpoint{
 					"": {
-						Url: "https://example.com",
+						Value: HttpEndpoint{
+							Url: "https://example.com",
+						},
 					},
 				},
 			},
@@ -1337,7 +1444,9 @@ func TestValidateMergedConfig(t *testing.T) {
 			config: &Config{
 				Endpoints: map[string]Endpoint{
 					"test": {
-						Url: "",
+						Value: HttpEndpoint{
+							Url: "",
+						},
 					},
 				},
 			},
@@ -1366,6 +1475,7 @@ func TestLoadConfigWithDefaults(t *testing.T) {
 	configContent := map[string]interface{}{
 		"endpoints": map[string]interface{}{
 			"test": map[string]interface{}{
+				"type": "http",
 				"url": "https://example.com",
 			},
 		},
@@ -1443,6 +1553,7 @@ func TestUnmarshalWithAutoDetection_JSON(t *testing.T) {
 	jsonContent := `{
 		"endpoints": {
 			"test": {
+				"type": "http",
 				"url": "https://example.com",
 				"headers": {
 					"Authorization": "Bearer token123"
@@ -1462,8 +1573,13 @@ func TestUnmarshalWithAutoDetection_JSON(t *testing.T) {
 		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
 	}
 
-	if config.Endpoints["test"].Url != "https://example.com" {
-		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].Url)
+	testEndpoint := config.Endpoints["test"]
+	testHttp, ok := testEndpoint.Value.(HttpEndpoint)
+	if !ok {
+		t.Fatalf("Expected HttpEndpoint for test endpoint")
+	}
+	if testHttp.Url != "https://example.com" {
+		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", testHttp.Url)
 	}
 
 	if config.LogFile != "/tmp/test.log" {
@@ -1477,6 +1593,7 @@ func TestUnmarshalWithAutoDetection_JSONC(t *testing.T) {
 		// This is a single-line comment
 		"endpoints": {
 			"test": {
+				"type": "http",
 				"url": "https://example.com", // inline comment
 				"headers": {
 					"Authorization": "Bearer token123"
@@ -1496,8 +1613,13 @@ func TestUnmarshalWithAutoDetection_JSONC(t *testing.T) {
 		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
 	}
 
-	if config.Endpoints["test"].Url != "https://example.com" {
-		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].Url)
+	testEndpoint := config.Endpoints["test"]
+	testHttp, ok := testEndpoint.Value.(HttpEndpoint)
+	if !ok {
+		t.Fatalf("Expected HttpEndpoint for test endpoint")
+	}
+	if testHttp.Url != "https://example.com" {
+		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", testHttp.Url)
 	}
 
 	if config.LogFile != "/tmp/test.log" {
@@ -1512,6 +1634,7 @@ func TestUnmarshalWithAutoDetection_JSONC_MultiLineComments(t *testing.T) {
 		   that spans multiple lines */
 		"endpoints": {
 			"test": {
+				"type": "http",
 				"url": "https://example.com" /* inline multi-line comment */,
 				"headers": {
 					"Authorization": "Bearer token123"
@@ -1531,8 +1654,13 @@ func TestUnmarshalWithAutoDetection_JSONC_MultiLineComments(t *testing.T) {
 		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
 	}
 
-	if config.Endpoints["test"].Url != "https://example.com" {
-		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].Url)
+	testEndpoint := config.Endpoints["test"]
+	testHttp, ok := testEndpoint.Value.(HttpEndpoint)
+	if !ok {
+		t.Fatalf("Expected HttpEndpoint for test endpoint")
+	}
+	if testHttp.Url != "https://example.com" {
+		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", testHttp.Url)
 	}
 }
 
@@ -1542,6 +1670,7 @@ func TestUnmarshalWithAutoDetection_JSONC_MixedComments(t *testing.T) {
 		// Configuration for mcproxy service
 		"endpoints": {
 			"api": {
+				"type": "http",
 				"url": "https://api.example.com",
 				"headers": {
 					/* Authentication header required for all requests */
@@ -1550,6 +1679,7 @@ func TestUnmarshalWithAutoDetection_JSONC_MixedComments(t *testing.T) {
 				}
 			},
 			"webhook": {
+				"type": "http",
 				"url": "https://webhook.example.com",
 				// No custom headers needed for webhook
 				"headers": {}
@@ -1569,17 +1699,27 @@ func TestUnmarshalWithAutoDetection_JSONC_MixedComments(t *testing.T) {
 	}
 
 	// Check API endpoint
-	if config.Endpoints["api"].Url != "https://api.example.com" {
-		t.Errorf("Expected API upstream URL 'https://api.example.com', got '%s'", config.Endpoints["api"].Url)
+	apiEndpoint := config.Endpoints["api"]
+	apiHttp, ok := apiEndpoint.Value.(HttpEndpoint)
+	if !ok {
+		t.Fatalf("Expected HttpEndpoint for api endpoint")
+	}
+	if apiHttp.Url != "https://api.example.com" {
+		t.Errorf("Expected API upstream URL 'https://api.example.com', got '%s'", apiHttp.Url)
 	}
 
-	if config.Endpoints["api"].Headers["Authorization"] != "Bearer {{api_token}}" {
-		t.Errorf("Expected Authorization header 'Bearer {{api_token}}', got '%s'", config.Endpoints["api"].Headers["Authorization"])
+	if apiHttp.Headers["Authorization"] != "Bearer {{api_token}}" {
+		t.Errorf("Expected Authorization header 'Bearer {{api_token}}', got '%s'", apiHttp.Headers["Authorization"])
 	}
 
 	// Check webhook endpoint
-	if config.Endpoints["webhook"].Url != "https://webhook.example.com" {
-		t.Errorf("Expected webhook upstream URL 'https://webhook.example.com', got '%s'", config.Endpoints["webhook"].Url)
+	webhookEndpoint := config.Endpoints["webhook"]
+	webhookHttp, ok := webhookEndpoint.Value.(HttpEndpoint)
+	if !ok {
+		t.Fatalf("Expected HttpEndpoint for webhook endpoint")
+	}
+	if webhookHttp.Url != "https://webhook.example.com" {
+		t.Errorf("Expected webhook upstream URL 'https://webhook.example.com', got '%s'", webhookHttp.Url)
 	}
 
 	if config.LogFile != "/var/log/mcproxy.log" {
@@ -1596,6 +1736,7 @@ func TestLoadConfig_JSONC(t *testing.T) {
 		// API endpoint configuration
 		"endpoints": {
 			"test": {
+				"type": "http",
 				"url": "https://example.com", // API server URL
 				"headers": {
 					"Authorization": "Bearer {{token}}" // auth token
@@ -1620,8 +1761,13 @@ func TestLoadConfig_JSONC(t *testing.T) {
 		t.Errorf("Expected 1 endpoint, got %d", len(config.Endpoints))
 	}
 
-	if config.Endpoints["test"].Url != "https://example.com" {
-		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", config.Endpoints["test"].Url)
+	testEndpoint := config.Endpoints["test"]
+	testHttp, ok := testEndpoint.Value.(HttpEndpoint)
+	if !ok {
+		t.Fatalf("Expected HttpEndpoint for test endpoint")
+	}
+	if testHttp.Url != "https://example.com" {
+		t.Errorf("Expected upstream URL 'https://example.com', got '%s'", testHttp.Url)
 	}
 
 	if config.LogFile != "/tmp/test.log" {
@@ -1679,6 +1825,7 @@ func TestLoadConfigHierarchical_JSONC(t *testing.T) {
 		// Global configuration
 		"endpoints": {
 			"global": {
+				"type": "http",
 				"url": "https://global.com"
 			}
 		}
@@ -1694,6 +1841,7 @@ func TestLoadConfigHierarchical_JSONC(t *testing.T) {
 		// Project-specific configuration
 		"endpoints": {
 			"project": {
+				"type": "http",
 				"url": "https://project.com"
 			}
 		}
@@ -1753,12 +1901,20 @@ func TestLoadConfigHierarchical_JSONC(t *testing.T) {
 	}
 
 	// Check global endpoint
-	if result.Config.Endpoints["global"].Url != "https://global.com" {
+	globalHttp, ok := result.Config.Endpoints["global"].Value.(HttpEndpoint)
+	if !ok {
+		t.Fatal("Expected HttpEndpoint for global endpoint")
+	}
+	if globalHttp.Url != "https://global.com" {
 		t.Error("Global endpoint not loaded correctly")
 	}
 
 	// Check project endpoint
-	if result.Config.Endpoints["project"].Url != "https://project.com" {
+	projectHttp, ok := result.Config.Endpoints["project"].Value.(HttpEndpoint)
+	if !ok {
+		t.Fatal("Expected HttpEndpoint for project endpoint")
+	}
+	if projectHttp.Url != "https://project.com" {
 		t.Error("Project endpoint not loaded correctly")
 	}
 
@@ -1796,6 +1952,7 @@ func TestUnmarshalWithAutoDetection_BackwardCompatibility(t *testing.T) {
 	jsonContent := `{
 		"endpoints": {
 			"test": {
+				"type": "http",
 				"url": "https://example.com"
 			}
 		}
@@ -1861,18 +2018,18 @@ func TestLoadConfigHierarchical_ExclusiveEnv(t *testing.T) {
 	os.Setenv("XDG_CONFIG_HOME", tempConfigDir)
 
 	// Create global config file in HOME directory
-	globalConfig := Config{
-		Endpoints: map[string]Endpoint{
-			"global-ep": {
-				Url: "http://global.example.com",
-				Headers: map[string]string{
-					"Global": "true",
-				},
-			},
-		},
-	}
 	globalConfigPath := filepath.Join(tempHome, "config.json")
-	globalConfigData, _ := json.Marshal(globalConfig)
+	globalConfigData := []byte(`{
+		"endpoints": {
+			"global-ep": {
+				"type": "http",
+				"url": "http://global.example.com",
+				"headers": {
+					"Global": "true"
+				}
+			}
+		}
+	}`)
 	os.WriteFile(globalConfigPath, globalConfigData, 0o644)
 
 	// Create global secrets file in HOME directory
@@ -1884,18 +2041,18 @@ func TestLoadConfigHierarchical_ExclusiveEnv(t *testing.T) {
 	os.WriteFile(globalSecretsPath, globalSecretsData, 0o644)
 
 	// Create specific config file (for testing exclusive mode)
-	specificConfig := Config{
-		Endpoints: map[string]Endpoint{
-			"specific-ep": {
-				Url: "http://specific.example.com",
-				Headers: map[string]string{
-					"Specific": "true",
-				},
-			},
-		},
-	}
 	specificConfigPath := filepath.Join(tempConfigDir, "custom.json")
-	specificConfigData, _ := json.Marshal(specificConfig)
+	specificConfigData := []byte(`{
+		"endpoints": {
+			"specific-ep": {
+				"type": "http",
+				"url": "http://specific.example.com",
+				"headers": {
+					"Specific": "true"
+				}
+			}
+		}
+	}`)
 	os.WriteFile(specificConfigPath, specificConfigData, 0o644)
 
 	// Create specific secrets file (for testing exclusive mode)

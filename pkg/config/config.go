@@ -24,31 +24,11 @@ type ServerConfig struct {
 type Config struct {
 	Endpoints         map[string]Endpoint `json:"endpoints"`
 	LogFile           string              `json:"logFile,omitempty"`
-	GlobalTimeout     time.Duration       `json:"globalTimeout,omitempty"`     // Global timeout for all endpoints (default: 60s)
-	GlobalMaxBodySize int64               `json:"globalMaxBodySize,omitempty"` // Global max body size in bytes (default: 10MB)
-	Server            ServerConfig        `json:"server,omitempty"`            // Server configuration for timeouts and shutdown
-}
-
-// EndpointType represents the type of endpoint (HTTP or stdio)
-type EndpointType string
-
-const (
-	EndpointTypeHTTP  EndpointType = "http"
-	EndpointTypeStdio EndpointType = "stdio"
-)
-
-// Endpoint represents a single proxy endpoint configuration
-type Endpoint struct {
-	Type        EndpointType      `json:"type,omitempty" description:"Endpoint type: 'http' for HTTP upstream or 'stdio' for MCP stdio process (default: 'http')"`
-	Url         string            `json:"url,omitempty" description:"The upstream server url (required for http type)"`
-	Command     []string          `json:"command,omitempty" description:"Command and arguments to execute for stdio endpoints"`
-	Env         map[string]string `json:"env,omitempty" description:"Environment variables to set for the stdio process"`
-	Args        []string          `json:"args,omitempty" description:"Arguments to pass to the MCP stdio endpoint during initialization"`
-	Headers     map[string]string `json:"headers,omitempty" description:"Custom headers to add to requests to the upstream server."`
-	Timeout     *time.Duration    `json:"timeout,omitempty" description:"Per-endpoint timeout in seconds (overrides global timeout)."`
-	MaxBodySize *int64            `json:"maxBodySize,omitempty" description:"Maximum request body size in bytes (overrides global limit)."`
-	_           struct{}          `additionalProperties:"false"`                            // Tags of unnamed field are applied to parent schema.
-	_           struct{}          `title:"MCProxy Config" description:"Config for MCProxy"` // Multiple unnamed fields can be used.
+	GlobalTimeout     time.Duration       `json:"globalTimeout,omitempty"`                          // Global timeout for all endpoints (default: 60s)
+	GlobalMaxBodySize int64               `json:"globalMaxBodySize,omitempty"`                      // Global max body size in bytes (default: 10MB)
+	Server            ServerConfig        `json:"server,omitzero"`                                  // Server configuration for timeouts and shutdown
+	_                 struct{}            `additionalProperties:"false"`                            // Tags of unnamed field are applied to parent schema.
+	_                 struct{}            `title:"MCProxy Config" description:"Config for MCProxy"` // Multiple unnamed fields can be used.
 }
 
 // Secrets represents the secrets structure for template substitution
@@ -245,56 +225,40 @@ func validateEndpoints(endpoints map[string]Endpoint) error {
 		}
 		lowercaseNames[lowerName] = name
 
-		// Set default type if not specified
-		endpointType := endpoint.Type
-		if endpointType == "" {
-			endpointType = EndpointTypeHTTP
+		// Check if endpoint value is nil
+		if endpoint.Value == nil {
+			errors.add(fmt.Sprintf("endpoint[%s]", name), "endpoint value cannot be nil")
+			continue
 		}
 
-		// Validate based on endpoint type
-		switch endpointType {
-		case EndpointTypeHTTP:
+		// Validate based on endpoint type using type assertions
+		switch e := endpoint.Value.(type) {
+		case HttpEndpoint:
 			// HTTP endpoints require a URL
-			if endpoint.Url == "" {
+			if e.Url == "" {
 				errors.add(fmt.Sprintf("endpoint[%s].url", name), "url is required for HTTP endpoints")
-			} else if err := isValidURL(endpoint.Url); err != nil {
+			} else if err := isValidURL(e.Url); err != nil {
 				errors.add(fmt.Sprintf("endpoint[%s].url", name), err.Error())
 			}
 
-			// HTTP endpoints should not have command or env
-			if len(endpoint.Command) > 0 {
-				errors.add(fmt.Sprintf("endpoint[%s].command", name), "command is not allowed for HTTP endpoints")
-			}
-			if len(endpoint.Env) > 0 {
-				errors.add(fmt.Sprintf("endpoint[%s].env", name), "env is not allowed for HTTP endpoints")
-			}
-			if len(endpoint.Args) > 0 {
-				errors.add(fmt.Sprintf("endpoint[%s].args", name), "args is not allowed for HTTP endpoints")
-			}
-
-		case EndpointTypeStdio:
-			// stdio endpoints require a command
-			if len(endpoint.Command) == 0 {
-				errors.add(fmt.Sprintf("endpoint[%s].command", name), "command is required for stdio endpoints")
-			} else {
-				// Validate command components
-				for i, cmdPart := range endpoint.Command {
-					if cmdPart == "" {
-						errors.add(fmt.Sprintf("endpoint[%s].command[%d]", name, i), "command component cannot be empty")
-					}
-					if strings.ContainsAny(cmdPart, "\r\n\t") {
-						errors.add(fmt.Sprintf("endpoint[%s].command[%d]", name, i), "command component contains invalid characters")
-					}
+			// Validate headers for HTTP endpoints
+			for key, value := range e.Headers {
+				if err := isValidHeaderKey(key); err != nil {
+					errors.add(fmt.Sprintf("endpoint[%s].headers[%s]", name, key), err.Error())
+				}
+				if err := isValidHeaderValue(value); err != nil {
+					errors.add(fmt.Sprintf("endpoint[%s].headers[%s]", name, key), err.Error())
 				}
 			}
 
-			// stdio endpoints should not have a URL
-			if endpoint.Url != "" {
-				errors.add(fmt.Sprintf("endpoint[%s].url", name), "url is not allowed for stdio endpoints")
+		case StdioEndpoint:
+			// stdio endpoints require a command
+			if e.Command == "" {
+				errors.add(fmt.Sprintf("endpoint[%s].command", name), "command is required for stdio endpoints")
 			}
 
 			// Validate environment variables
-			for key, value := range endpoint.Env {
+			for key, value := range e.Env {
 				if key == "" {
 					errors.add(fmt.Sprintf("endpoint[%s].env", name), "environment variable key cannot be empty")
 				}
@@ -307,42 +271,45 @@ func validateEndpoints(endpoints map[string]Endpoint) error {
 			}
 
 			// Validate args
-			for i, arg := range endpoint.Args {
+			for i, arg := range e.Args {
 				if arg == "" {
 					errors.add(fmt.Sprintf("endpoint[%s].args[%d]", name, i), "arg cannot be empty")
 				}
 			}
 
 		default:
-			errors.add(fmt.Sprintf("endpoint[%s].type", name), fmt.Sprintf("invalid endpoint type '%s', must be 'http' or 'stdio'", endpointType))
+			errors.add(fmt.Sprintf("endpoint[%s].type", name), "invalid endpoint type, must be HttpEndpoint or StdioEndpoint")
 		}
 
-		// Validate headers (common to both types)
-		for key, value := range endpoint.Headers {
-			if err := isValidHeaderKey(key); err != nil {
-				errors.add(fmt.Sprintf("endpoint[%s].headers[%s]", name, key), err.Error())
-			}
-			if err := isValidHeaderValue(value); err != nil {
-				errors.add(fmt.Sprintf("endpoint[%s].headers[%s]", name, key), err.Error())
-			}
+		// Validate shared fields (timeout and maxBodySize) - these are available on both types
+		var timeout *time.Duration
+		var maxBodySize *int64
+
+		switch e := endpoint.Value.(type) {
+		case HttpEndpoint:
+			timeout = e.Timeout
+			maxBodySize = e.MaxBodySize
+		case StdioEndpoint:
+			timeout = e.Timeout
+			maxBodySize = e.MaxBodySize
 		}
 
 		// Validate timeout if specified
-		if endpoint.Timeout != nil {
-			if *endpoint.Timeout <= 0 {
+		if timeout != nil {
+			if *timeout <= 0 {
 				errors.add(fmt.Sprintf("endpoint[%s].timeout", name), "timeout must be positive")
 			}
-			if *endpoint.Timeout > 300*time.Second {
+			if *timeout > 300*time.Second {
 				errors.add(fmt.Sprintf("endpoint[%s].timeout", name), "timeout too large (max 300s)")
 			}
 		}
 
 		// Validate max body size if specified
-		if endpoint.MaxBodySize != nil {
-			if *endpoint.MaxBodySize <= 0 {
+		if maxBodySize != nil {
+			if *maxBodySize <= 0 {
 				errors.add(fmt.Sprintf("endpoint[%s].maxBodySize", name), "maxBodySize must be positive")
 			}
-			if *endpoint.MaxBodySize > 100*1024*1024 { // 100MB
+			if *maxBodySize > 100*1024*1024 { // 100MB
 				errors.add(fmt.Sprintf("endpoint[%s].maxBodySize", name), "maxBodySize too large (max 100MB)")
 			}
 		}
@@ -436,7 +403,17 @@ func ProcessSecretTemplates(config *Config, secrets Secrets) (map[string]Endpoin
 		}
 
 		// Log template resolution details for debugging
-		logging.LogTemplateResolution(name, endpoint.Headers, processedEndpoint.Headers, missingVars)
+		var originalHeaders, processedHeaders map[string]string
+
+		// Extract headers based on endpoint type
+		if e, ok := endpoint.Value.(HttpEndpoint); ok {
+			originalHeaders = e.Headers
+		}
+		if e, ok := processedEndpoint.Value.(HttpEndpoint); ok {
+			processedHeaders = e.Headers
+		}
+
+		logging.LogTemplateResolution(name, originalHeaders, processedHeaders, missingVars)
 	}
 
 	return processed, skipped
@@ -445,27 +422,46 @@ func ProcessSecretTemplates(config *Config, secrets Secrets) (map[string]Endpoin
 // processEndpointTemplating processes secret templates for a single endpoint
 func processEndpointTemplating(endpoint Endpoint, secrets Secrets) (Endpoint, []string) {
 	var allMissingVars []string
-	processed := endpoint
-	processed.Headers = make(map[string]string)
+	var originalHeaders map[string]string
+	var originalEnv map[string]string
 
-	// Process headers
-	for headerName, headerValue := range endpoint.Headers {
-		resolvedValue, missingVars, err := substituteTemplate(headerValue, secrets)
-		if err != nil {
-			logging.Printf("Error processing header '%s': %v", headerName, err)
-			logging.Debugf("Template error details: header='%s', value='%s', error=%v", headerName, headerValue, err)
-			// Use original value if template processing fails
-			resolvedValue = headerValue
-		}
-
-		allMissingVars = append(allMissingVars, missingVars...)
-		processed.Headers[headerName] = resolvedValue
+	// Extract headers and env based on endpoint type
+	switch e := endpoint.Value.(type) {
+	case HttpEndpoint:
+		originalHeaders = e.Headers
+	case StdioEndpoint:
+		originalEnv = e.Env
 	}
 
-	// Process environment variables for stdio endpoints
-	if len(endpoint.Env) > 0 {
-		processed.Env = make(map[string]string)
-		for envName, envValue := range endpoint.Env {
+	// Create new endpoint value with processed templates
+	switch e := endpoint.Value.(type) {
+	case HttpEndpoint:
+		processedEndpoint := e
+		processedHeaders := make(map[string]string)
+
+		// Process headers for HTTP endpoints
+		for headerName, headerValue := range originalHeaders {
+			resolvedValue, missingVars, err := substituteTemplate(headerValue, secrets)
+			if err != nil {
+				logging.Printf("Error processing header '%s': %v", headerName, err)
+				logging.Debugf("Template error details: header='%s', value='%s', error=%v", headerName, headerValue, err)
+				// Use original value if template processing fails
+				resolvedValue = headerValue
+			}
+
+			allMissingVars = append(allMissingVars, missingVars...)
+			processedHeaders[headerName] = resolvedValue
+		}
+
+		processedEndpoint.Headers = processedHeaders
+		endpoint.Value = processedEndpoint
+
+	case StdioEndpoint:
+		processedEndpoint := e
+		processedEnv := make(map[string]string)
+
+		// Process environment variables for stdio endpoints
+		for envName, envValue := range originalEnv {
 			resolvedValue, missingVars, err := substituteTemplate(envValue, secrets)
 			if err != nil {
 				logging.Printf("Error processing environment variable '%s': %v", envName, err)
@@ -475,11 +471,14 @@ func processEndpointTemplating(endpoint Endpoint, secrets Secrets) (Endpoint, []
 			}
 
 			allMissingVars = append(allMissingVars, missingVars...)
-			processed.Env[envName] = resolvedValue
+			processedEnv[envName] = resolvedValue
 		}
+
+		processedEndpoint.Env = processedEnv
+		endpoint.Value = processedEndpoint
 	}
 
-	return processed, allMissingVars
+	return endpoint, allMissingVars
 }
 
 // substituteTemplate replaces {{ var_name }} placeholders with secret values

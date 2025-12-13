@@ -553,8 +553,22 @@ func validateMergedConfig(config *Config) error {
 		if name == "" {
 			return fmt.Errorf("endpoint name cannot be empty")
 		}
-		if endpoint.Url == "" {
-			return fmt.Errorf("upstream URL cannot be empty for endpoint '%s'", name)
+
+		// Check endpoint value is not nil
+		if endpoint.Value == nil {
+			return fmt.Errorf("endpoint value cannot be nil for endpoint '%s'", name)
+		}
+
+		// Validate based on endpoint type
+		switch e := endpoint.Value.(type) {
+		case HttpEndpoint:
+			if e.Url == "" {
+				return fmt.Errorf("upstream URL cannot be empty for HTTP endpoint '%s'", name)
+			}
+		case StdioEndpoint:
+			if e.Command == "" {
+				return fmt.Errorf("command cannot be empty for stdio endpoint '%s'", name)
+			}
 		}
 	}
 

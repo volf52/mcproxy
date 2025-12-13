@@ -19,7 +19,6 @@ type StdioEndpoint struct {
 	command     []string
 	env         map[string]string
 	args        []string
-	headers     map[string]string
 	timeout     time.Duration
 	maxBodySize int64
 
@@ -31,9 +30,15 @@ type StdioEndpoint struct {
 
 // NewStdioEndpoint creates a new stdio endpoint
 func NewStdioEndpoint(name string, cfg config.Endpoint, secrets map[string]string) (Endpoint, error) {
+	// Extract StdioEndpoint from the discriminated union
+	stdioEndpoint, ok := cfg.Value.(config.StdioEndpoint)
+	if !ok {
+		return nil, fmt.Errorf("endpoint is not a stdio endpoint")
+	}
+
 	// Process secret templates in environment variables
 	processedEnv := make(map[string]string)
-	for envName, envValue := range cfg.Env {
+	for envName, envValue := range stdioEndpoint.Env {
 		resolvedValue, missingVars, err := substituteTemplate(envValue, secrets)
 		if err != nil {
 			logging.Printf("Error processing environment variable '%s' for endpoint '%s': %v", envName, name, err)
@@ -50,18 +55,24 @@ func NewStdioEndpoint(name string, cfg config.Endpoint, secrets map[string]strin
 
 	// Set defaults
 	timeout := 60 * time.Second
-	if cfg.Timeout != nil {
-		timeout = *cfg.Timeout
+	if stdioEndpoint.Timeout != nil {
+		timeout = *stdioEndpoint.Timeout
 	}
 
 	maxBodySize := int64(10 * 1024 * 1024) // 10MB
-	if cfg.MaxBodySize != nil {
-		maxBodySize = *cfg.MaxBodySize
+	if stdioEndpoint.MaxBodySize != nil {
+		maxBodySize = *stdioEndpoint.MaxBodySize
+	}
+
+	// Parse command - assume it's a single string that needs to be split or already a slice
+	var command []string
+	if len(stdioEndpoint.Command) > 0 {
+		command = []string{stdioEndpoint.Command}
 	}
 
 	// Create process manager
 	pm, err := mcp.NewProcessManager(&mcp.ProcessManagerOptions{
-		Command: cfg.Command,
+		Command: command,
 		Env:     processedEnv,
 		NotificationHandler: func(notification *mcp.JSONRPCNotification) {
 			logging.Printf("MCP notification from endpoint '%s': %s", name, notification.Method)
@@ -78,10 +89,9 @@ func NewStdioEndpoint(name string, cfg config.Endpoint, secrets map[string]strin
 
 	return &StdioEndpoint{
 		name:           name,
-		command:        cfg.Command,
+		command:        command,
 		env:            processedEnv,
-		args:           cfg.Args,
-		headers:        cfg.Headers,
+		args:           stdioEndpoint.Args,
 		timeout:        timeout,
 		maxBodySize:    maxBodySize,
 		processManager: pm,
@@ -237,10 +247,7 @@ func (e *StdioEndpoint) getCombinedHeaders(r *http.Request) map[string]string {
 		}
 	}
 
-	// Override/add configured headers
-	for key, value := range e.headers {
-		combined[key] = value
-	}
+	// Stdio endpoints don't have custom headers to override
 
 	return combined
 }
