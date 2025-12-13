@@ -8,6 +8,27 @@
       "description": "Config for MCProxy",
       "additionalProperties": false,
       "properties": {
+        "args": {
+          "description": "Arguments to pass to the MCP stdio endpoint during initialization",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "command": {
+          "description": "Command and arguments to execute for stdio endpoints",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "env": {
+          "description": "Environment variables to set for the stdio process",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
         "headers": {
           "description": "Custom headers to add to requests to the upstream server.",
           "additionalProperties": {
@@ -29,8 +50,12 @@
             "integer"
           ]
         },
+        "type": {
+          "description": "Endpoint type: 'http' for HTTP upstream or 'stdio' for MCP stdio process (default: 'http')",
+          "type": "string"
+        },
         "url": {
-          "description": "The upstream server url",
+          "description": "The upstream server url (required for http type)",
           "type": "string"
         }
       },
