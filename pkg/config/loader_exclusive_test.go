@@ -361,3 +361,188 @@ func TestLoadConfigHierarchical_ExclusiveModeErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadConfigHierarchical_ExclusiveModeEdgeCases(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Save original environment variables
+	originalConfig := os.Getenv("MCPROXY_CONFIG")
+	originalSecrets := os.Getenv("MCPROXY_SECRETS")
+	originalHome := os.Getenv("HOME")
+
+	defer func() {
+		os.Setenv("MCPROXY_CONFIG", originalConfig)
+		os.Setenv("MCPROXY_SECRETS", originalSecrets)
+		os.Setenv("HOME", originalHome)
+	}()
+
+	tests := []struct {
+		name            string
+		setupEnv        func()
+		wantErr         bool
+		wantErrContains string
+		validateResult  func(*HierarchicalLoadResult, error)
+	}{
+		{
+			name: "config with secrets unset loads config exclusively",
+			setupEnv: func() {
+				configPath := filepath.Join(tmpDir, "config.json")
+				os.WriteFile(configPath, []byte(`{"endpoints": {"test": {"url": "https://example.com"}}}`), 0644)
+				os.Setenv("MCPROXY_CONFIG", configPath)
+				os.Unsetenv("MCPROXY_SECRETS") // Explicitly unset
+			},
+			wantErr: false,
+			validateResult: func(result *HierarchicalLoadResult, err error) {
+				if result == nil {
+					t.Error("Expected result to not be nil")
+					return
+				}
+				if result.Config == nil || len(result.Config.Endpoints) != 1 {
+					t.Error("Expected 1 endpoint in config")
+				}
+				if result.Config.Endpoints["test"].Url != "https://example.com" {
+					t.Error("Expected endpoint URL to match")
+				}
+				// Should be in exclusive mode
+				if !result.ProjectFiles.Loaded {
+					t.Error("Expected project files to be marked as loaded")
+				}
+			},
+		},
+		{
+			name: "secrets with config unset loads secrets exclusively",
+			setupEnv: func() {
+				os.Unsetenv("MCPROXY_CONFIG") // Explicitly unset
+				secretsPath := filepath.Join(tmpDir, "secrets.json")
+				os.WriteFile(secretsPath, []byte(`{"API_TOKEN": "secret123"}`), 0644)
+				os.Setenv("MCPROXY_SECRETS", secretsPath)
+			},
+			wantErr: false,
+			validateResult: func(result *HierarchicalLoadResult, err error) {
+				if result == nil {
+					t.Error("Expected result to not be nil")
+					return
+				}
+				if result.Secrets == nil || len(result.Secrets) != 1 {
+					t.Error("Expected 1 secret entry")
+				}
+				if result.Secrets["API_TOKEN"] != "secret123" {
+					t.Error("Expected secret value to match")
+				}
+				// Should be in exclusive mode
+				if result.ProjectFiles.Secrets != 1 {
+					t.Error("Expected project secrets count to be 1")
+				}
+			},
+		},
+		{
+			name: "both env vars set but only config exists - error",
+			setupEnv: func() {
+				configPath := filepath.Join(tmpDir, "config.json")
+				os.WriteFile(configPath, []byte(`{"endpoints": {}}`), 0644)
+				os.Setenv("MCPROXY_CONFIG", configPath)
+				os.Setenv("MCPROXY_SECRETS", filepath.Join(tmpDir, "nonexistent.json"))
+			},
+			wantErr:         true,
+			wantErrContains: "does not exist",
+		},
+		{
+			name: "both env vars set but only secrets exists - error",
+			setupEnv: func() {
+				os.Setenv("MCPROXY_CONFIG", filepath.Join(tmpDir, "nonexistent.json"))
+				secretsPath := filepath.Join(tmpDir, "secrets.json")
+				os.WriteFile(secretsPath, []byte(`{"TOKEN": "value"}`), 0644)
+				os.Setenv("MCPROXY_SECRETS", secretsPath)
+			},
+			wantErr:         true,
+			wantErrContains: "does not exist",
+		},
+		{
+			name: "empty string config path with valid secrets",
+			setupEnv: func() {
+				os.Setenv("MCPROXY_CONFIG", "") // Empty string
+				secretsPath := filepath.Join(tmpDir, "secrets.json")
+				os.WriteFile(secretsPath, []byte(`{"TOKEN": "value"}`), 0644)
+				os.Setenv("MCPROXY_SECRETS", secretsPath)
+			},
+			wantErr: false,
+			validateResult: func(result *HierarchicalLoadResult, err error) {
+				if result == nil {
+					t.Error("Expected result to not be nil")
+					return
+				}
+				// Should only load secrets
+				if result.Secrets == nil || len(result.Secrets) != 1 {
+					t.Error("Expected 1 secret entry")
+				}
+			},
+		},
+		{
+			name: "empty string secrets path with valid config",
+			setupEnv: func() {
+				configPath := filepath.Join(tmpDir, "config.json")
+				os.WriteFile(configPath, []byte(`{"endpoints": {"ep": {"url": "http://test"}}}`), 0644)
+				os.Setenv("MCPROXY_CONFIG", configPath)
+				os.Setenv("MCPROXY_SECRETS", "") // Empty string
+			},
+			wantErr: false,
+			validateResult: func(result *HierarchicalLoadResult, err error) {
+				if result == nil {
+					t.Error("Expected result to not be nil")
+					return
+				}
+				// Should only load config
+				if result.Config == nil || len(result.Config.Endpoints) != 1 {
+					t.Error("Expected 1 endpoint")
+				}
+			},
+		},
+		{
+			name: "both empty strings falls back to hierarchical",
+			setupEnv: func() {
+				os.Setenv("MCPROXY_CONFIG", "")
+				os.Setenv("MCPROXY_SECRETS", "")
+				// Set up hierarchical files
+				homeConfigPath := filepath.Join(tmpDir, ".config", "mcproxy", "config.json")
+				os.MkdirAll(filepath.Dir(homeConfigPath), 0755)
+				os.WriteFile(homeConfigPath, []byte(`{"endpoints": {"hier": {"url": "http://hierarchical"}}}`), 0644)
+				os.Setenv("HOME", tmpDir)
+			},
+			wantErr: false,
+			validateResult: func(result *HierarchicalLoadResult, err error) {
+				if result == nil {
+					t.Error("Expected result to not be nil")
+					return
+				}
+				// Should load hierarchical config (may have merged endpoints)
+				if result.Config == nil || len(result.Config.Endpoints) == 0 {
+					t.Error("Expected at least 1 endpoint from hierarchical mode")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setupEnv()
+
+			result, err := LoadConfigHierarchical()
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				} else if tt.wantErrContains != "" && !contains(err.Error(), tt.wantErrContains) {
+					t.Errorf("Expected error to contain '%s', got '%s'", tt.wantErrContains, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got %v", err)
+				}
+			}
+
+			if tt.validateResult != nil {
+				tt.validateResult(result, err)
+			}
+		})
+	}
+}

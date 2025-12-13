@@ -363,40 +363,42 @@ func LoadConfigHierarchical() (*HierarchicalLoadResult, error) {
 		// Environment variables are set, check if we should use exclusive mode
 		// Environment variables are set, check if we should use exclusive mode
 		// First, check if all specified files exist
-		configExists := true
-		secretsExists := true
+		configExists := false
+		secretsExists := false
 
 		if envConfigPath != "" {
-			if _, err := os.Stat(envConfigPath); err != nil {
-				configExists = false
+			if _, err := os.Stat(envConfigPath); err == nil {
+				configExists = true
 			}
 		}
 
 		if envSecretsPath != "" {
-			if _, err := os.Stat(envSecretsPath); err != nil {
-				secretsExists = false
+			if _, err := os.Stat(envSecretsPath); err == nil {
+				secretsExists = true
 			}
 		}
 
-		// If any environment variable was set and files don't exist, check what to do
+		// Handle exclusive mode when any environment variable is set
 		if envConfigPath != "" || envSecretsPath != "" {
-			// If one file exists and the other doesn't, return an error
+			// If both environment variables are set but only one file exists, return an error
 			if (envConfigPath != "" && envSecretsPath != "") && (configExists != secretsExists) {
-				if envConfigPath != "" && !configExists {
-					return nil, fmt.Errorf("failed to load exclusive secrets: config file exists but secrets file %s does not exist", envSecretsPath)
+				if !configExists {
+					return nil, fmt.Errorf("failed to load exclusive config: config file %s does not exist", envConfigPath)
 				}
-				if envSecretsPath != "" && !secretsExists {
-					return nil, fmt.Errorf("failed to load exclusive secrets: secrets file exists but config file %s does not exist", envConfigPath)
+				if !secretsExists {
+					return nil, fmt.Errorf("failed to load exclusive secrets: secrets file %s does not exist", envSecretsPath)
 				}
 			}
 
-			// If both files don't exist, fall back to hierarchical mode
+			// If neither file exists, fall back to hierarchical mode
 			if !configExists && !secretsExists {
 				logging.Warning("Falling back to hierarchical mode: exclusive files not found")
 				globalConfig, projectConfig, globalSecrets, projectSecrets = loadHierarchicalConfigs(result)
-			} else if configExists && secretsExists {
-				// Both files exist, use exclusive mode
-				if envConfigPath != "" {
+			} else {
+				// Special case: if only secrets are specified exclusively, load secrets exclusively
+				// but fall back to hierarchical mode for config to get endpoints
+				if configExists && !secretsExists {
+					// Only config exists - load exclusively
 					config, loadErr := loadConfigFileExclusive(envConfigPath)
 					if loadErr != nil {
 						return nil, fmt.Errorf("failed to load exclusive config: %w", loadErr)
@@ -406,9 +408,34 @@ func LoadConfigHierarchical() (*HierarchicalLoadResult, error) {
 					result.ProjectFiles.Loaded = true
 					result.ProjectFiles.Endpoints = len(projectConfig.Endpoints)
 					logging.Printf("Loaded exclusive config from %s (%d endpoints)", envConfigPath, len(projectConfig.Endpoints))
-				}
+				} else if !configExists && secretsExists {
+					// Only secrets exist - load secrets exclusively but use hierarchical config
+					secrets, loadErr := loadSecretsFileExclusive(envSecretsPath)
+					if loadErr != nil {
+						return nil, fmt.Errorf("failed to load exclusive secrets: %w", loadErr)
+					}
+					projectSecrets = secrets
+					result.ProjectFiles.Secrets = len(projectSecrets)
+					logging.Printf("Loaded exclusive secrets from %s (%d entries)", envSecretsPath, len(projectSecrets))
 
-				if envSecretsPath != "" {
+					// Load config hierarchically to get endpoints
+					logging.Printf("Loading configuration hierarchily (no exclusive config specified)")
+					// Create a separate result for hierarchical loading to avoid updating counters
+					hierResult := &HierarchicalLoadResult{}
+					globalConfig, projectConfig, _, _ = loadHierarchicalConfigs(hierResult)
+					// Ignore hierarchical secrets since we're in exclusive secrets mode
+				} else {
+					// Both exist - load both exclusively
+					config, loadErr := loadConfigFileExclusive(envConfigPath)
+					if loadErr != nil {
+						return nil, fmt.Errorf("failed to load exclusive config: %w", loadErr)
+					}
+					projectConfig = config
+					result.ProjectFiles.Path = envConfigPath
+					result.ProjectFiles.Loaded = true
+					result.ProjectFiles.Endpoints = len(projectConfig.Endpoints)
+					logging.Printf("Loaded exclusive config from %s (%d endpoints)", envConfigPath, len(projectConfig.Endpoints))
+
 					secrets, loadErr := loadSecretsFileExclusive(envSecretsPath)
 					if loadErr != nil {
 						return nil, fmt.Errorf("failed to load exclusive secrets: %w", loadErr)
