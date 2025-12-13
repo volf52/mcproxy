@@ -19,7 +19,9 @@ Multiple configuration fields lack proper input validation, creating potential s
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 Add strict validation for command components to prevent injection
 - [ ] #2 Implement environment variable name and value sanitization
 - [ ] #3 Add header value validation with proper encoding checks

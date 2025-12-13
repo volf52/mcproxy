@@ -18,7 +18,9 @@ Add stdio MCP support alongside existing HTTP endpoints in mcproxy service. This
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 Service supports both HTTP and stdio endpoint types in configuration
 - [ ] #2 Existing HTTP-only configurations remain fully functional
 - [ ] #3 stdio endpoints can be configured with command, args, environment, and timeout

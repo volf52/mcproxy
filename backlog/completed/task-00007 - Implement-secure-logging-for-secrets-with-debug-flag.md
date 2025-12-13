@@ -22,7 +22,9 @@ Currently the application logs filled secret values when showing endpoint config
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 By default, endpoint logging should show placeholder text like [SECRET] or [HIDDEN] instead of actual secret values
 - [x] #2 Add a debug/verbose flag (environment variable) that enables showing filled secrets for troubleshooting
 - [x] #3 When debug mode is enabled, log additional information about secret templating process
@@ -36,6 +38,7 @@ Currently the application logs filled secret values when showing endpoint config
 ## Implementation Plan
 
 ### Phase 1: Create Secure Logging Infrastructure
+
 1. **Create `pkg/logging/secure_logger.go`**
    - Implement a SecureLogger wrapper around standard log package
    - Add debug mode flag: `MCPROXY_DEBUG` environment variable
@@ -48,6 +51,7 @@ Currently the application logs filled secret values when showing endpoint config
    - Function to redact/securify log messages containing sensitive data
 
 ### Phase 2: Update Configuration Package (`pkg/config/`)
+
 1. **Modify `config.go`**
    - Update `ProcessSecretTemplates()` to add secure logging
    - Add debug logging for secret resolution process when enabled
@@ -60,6 +64,7 @@ Currently the application logs filled secret values when showing endpoint config
    - Function to log missing secret variables without exposing secret values
 
 ### Phase 3: Update Proxy Package (`pkg/proxy/`)
+
 1. **Modify `server.go`**
    - Update endpoint registration logging to hide header values
    - Add debug mode logging for upstream request creation
@@ -67,33 +72,38 @@ Currently the application logs filled secret values when showing endpoint config
    - Add secure logging for request forwarding in debug mode only
 
 ### Phase 4: Main Application Update (`cmd/mcproxy/main.go`)
+
 1. **Add debug flag initialization**
    - Read `MCPROXY_DEBUG` environment variable
    - Initialize secure logger with appropriate settings
    - Log application startup information securely
 
 ### Phase 5: Testing (`pkg/config/config_test.go`)
+
 1. **Add secure logging tests**
    - Test that secret values are redacted in normal mode
    - Test that secrets are shown in debug mode
    - Test endpoint logging with various header configurations
    - Test error logging doesn't expose secret information
 
-### Key Implementation Details:
+### Key Implementation Details
+
 - **Placeholder format**: Use `[SECRET]` or `[HIDDEN]` for redacted values
 - **Debug flag**: Check `MCPROXY_DEBUG=true` environment variable
 - **Backward compatibility**: Maintain all current logging behavior when debug mode is enabled
 - **Structured logging**: Ensure no secret values ever appear in structured logs or error messages
 - **Performance**: Minimal overhead for secret detection and redaction
 
-### Files to Create/Modify:
+### Files to Create/Modify
+
 - `pkg/logging/secure_logger.go` (new)
 - `pkg/config/config.go` (modify)
 - `pkg/proxy/server.go` (modify)  
 - `cmd/mcproxy/main.go` (modify)
 - `pkg/config/config_test.go` (add tests)
 
-### Validation Criteria:
+### Validation Criteria
+
 - Normal logs never contain actual secret values
 - Debug mode shows full information for troubleshooting
 - Template resolution process is logged only in debug mode

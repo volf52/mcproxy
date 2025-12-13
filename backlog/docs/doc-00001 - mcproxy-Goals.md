@@ -5,6 +5,7 @@ type: other
 created_date: '2025-11-26 23:07'
 ---
 ## mcproxy Project Goals
+
 - Deliver a lightweight Go HTTP proxy that dynamically publishes POST endpoints from JSON config.
 - Support outbound HTTPS from day one; expose inbound HTTP on port 8099 by default.
 - Keep secrets separate: resolve `{{ var_name }}` placeholders in config headers using a secrets JSON file; skip endpoints with missing secrets.

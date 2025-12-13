@@ -19,7 +19,9 @@ Critical memory leak identified in pkg/mcp/process.go at line 318 where dropped 
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 Implement request timeout and cleanup mechanism for pending requests
 - [ ] #2 Add context-based cancellation for pending requests
 - [ ] #3 Ensure all pending requests are cleaned up when responses are dropped

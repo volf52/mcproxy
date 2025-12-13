@@ -19,18 +19,20 @@ Startup logs in cmd/mcproxy/main.go:43-52 use fmt.Printf to print upstream URLs 
 The main.go file contains multiple fmt.Printf statements that bypass the secure logging system:
 
 1. Lines 14, 25-31: Basic startup information using fmt.Printf/fmt.Println
-2. Lines 36-40: Endpoint processing statistics 
+2. Lines 36-40: Endpoint processing statistics
 3. Lines 43-52: CRITICAL - Direct logging of endpoint URLs and headers that may contain secrets
 4. Lines 56-63: Warning messages about no endpoints
 5. Line 76: Server start message
 
 This creates a security vulnerability where:
+
 - Secret templates in headers ({{api_key}}) are exposed in plain text
 - Actual resolved secret values may be leaked
 - Structured logging benefits are lost (no log levels, no sanitization)
 - Inconsistent with the proxy/server.go which properly uses logging.Printf
 
 The project has a comprehensive secure logging system at pkg/logging/secure_logger.go with:
+
 - Multiple debug levels (off, sanitized, partial, unredacted)
 - Automatic secret detection and redaction
 - Template pattern matching
@@ -38,7 +40,9 @@ The project has a comprehensive secure logging system at pkg/logging/secure_logg
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 Replace ALL fmt.Printf/fmt.Println statements with appropriate logging package calls
 - [ ] #2 Ensure startup endpoint information uses logging.Printf for automatic secret sanitization
 - [ ] #3 Add structured log levels: Info for normal startup, Warning for non-fatal issues, Error for failures
@@ -52,7 +56,9 @@ The project has a comprehensive secure logging system at pkg/logging/secure_logg
 
 <!-- SECTION:PLAN:BEGIN -->
 ### 1. Replace Basic Startup Messages (Lines 14-31)
+
 **Current code:**
+
 ```go
 fmt.Println("Starting mcproxy...")
 fmt.Printf("Loaded configuration with %d endpoints\n", len(cfg.Endpoints))
@@ -65,6 +71,7 @@ if logging.IsDebugMode() {
 ```
 
 **Replacement:**
+
 ```go
 logging.Info("Starting mcproxy")
 logging.Printf("Loaded configuration with %d endpoints", len(cfg.Endpoints))
@@ -77,7 +84,9 @@ if logging.IsDebugMode() {
 ```
 
 ### 2. Replace Endpoint Processing Statistics (Lines 36-40)
+
 **Current code:**
+
 ```go
 fmt.Printf("Processed %d endpoints with secret templates\n", len(processedEndpoints))
 if len(skipped) > 0 {
@@ -86,6 +95,7 @@ if len(skipped) > 0 {
 ```
 
 **Replacement:**
+
 ```go
 logging.Printf("Processed %d endpoints with secret templates", len(processedEndpoints))
 if len(skipped) > 0 {
@@ -94,7 +104,9 @@ if len(skipped) > 0 {
 ```
 
 ### 3. CRITICAL: Replace Endpoint Information Loop (Lines 43-52)
+
 **Current code (SECURITY ISSUE):**
+
 ```go
 for name, endpoint := range processedEndpoints {
     fmt.Printf("Endpoint '%s' -> %s\n", name, endpoint.Url)
@@ -107,11 +119,12 @@ for name, endpoint := range processedEndpoints {
 ```
 
 **Secure replacement:**
+
 ```go
 for name, endpoint := range processedEndpoints {
     // Use logging.Printf which automatically sanitizes secrets
     logging.Printf("Endpoint '%s' -> %s", name, endpoint.Url)
-    
+
     // Headers are already sanitized, but use logging.Printf for consistency
     sanitizedHeaders := logging.SanitizeHeadersForLogging(endpoint.Headers)
     for header, value := range sanitizedHeaders {
@@ -121,7 +134,9 @@ for name, endpoint := range processedEndpoints {
 ```
 
 ### 4. Replace No Endpoints Warning (Lines 56-63)
+
 **Current code:**
+
 ```go
 fmt.Println("Warning: No valid endpoints to serve")
 fmt.Println("Please check your configuration files:")
@@ -130,6 +145,7 @@ fmt.Println("  - Global config: ~/config.jsonc or ~/config.json")
 ```
 
 **Replacement:**
+
 ```go
 logging.Warning("No valid endpoints to serve")
 logging.Warning("Please check your configuration files:")
@@ -141,12 +157,15 @@ logging.Warning("  - Fallback: ./.mcproxy/config.jsonc and ./.mcproxy/secrets.js
 ```
 
 ### 5. Replace Server Start Message (Line 76)
+
 **Current code:**
+
 ```go
 fmt.Printf("Starting proxy server on port %s\n", port)
 ```
 
 **Replacement:**
+
 ```go
 logging.Printf("Starting proxy server on port %s", port)
 ```
@@ -187,7 +206,9 @@ logging.Printf("Starting proxy server on port %s", port)
 ## Implementation Plan
 
 ### 1. Replace Basic Startup Messages (Lines 14-31)
+
 **Current code:**
+
 ```go
 fmt.Println("Starting mcproxy...")
 fmt.Printf("Loaded configuration with %d endpoints\n", len(cfg.Endpoints))
@@ -200,6 +221,7 @@ if logging.IsDebugMode() {
 ```
 
 **Replacement:**
+
 ```go
 logging.Info("Starting mcproxy")
 logging.Printf("Loaded configuration with %d endpoints", len(cfg.Endpoints))
@@ -212,7 +234,9 @@ if logging.IsDebugMode() {
 ```
 
 ### 2. Replace Endpoint Processing Statistics (Lines 36-40)
+
 **Current code:**
+
 ```go
 fmt.Printf("Processed %d endpoints with secret templates\n", len(processedEndpoints))
 if len(skipped) > 0 {
@@ -221,6 +245,7 @@ if len(skipped) > 0 {
 ```
 
 **Replacement:**
+
 ```go
 logging.Printf("Processed %d endpoints with secret templates", len(processedEndpoints))
 if len(skipped) > 0 {
@@ -229,7 +254,9 @@ if len(skipped) > 0 {
 ```
 
 ### 3. CRITICAL: Replace Endpoint Information Loop (Lines 43-52)
+
 **Current code (SECURITY ISSUE):**
+
 ```go
 for name, endpoint := range processedEndpoints {
     fmt.Printf("Endpoint '%s' -> %s\n", name, endpoint.Url)
@@ -242,11 +269,12 @@ for name, endpoint := range processedEndpoints {
 ```
 
 **Secure replacement:**
+
 ```go
 for name, endpoint := range processedEndpoints {
     // Use logging.Printf which automatically sanitizes secrets
     logging.Printf("Endpoint '%s' -> %s", name, endpoint.Url)
-    
+
     // Headers are already sanitized, but use logging.Printf for consistency
     sanitizedHeaders := logging.SanitizeHeadersForLogging(endpoint.Headers)
     for header, value := range sanitizedHeaders {
@@ -256,7 +284,9 @@ for name, endpoint := range processedEndpoints {
 ```
 
 ### 4. Replace No Endpoints Warning (Lines 56-63)
+
 **Current code:**
+
 ```go
 fmt.Println("Warning: No valid endpoints to serve")
 fmt.Println("Please check your configuration files:")
@@ -265,6 +295,7 @@ fmt.Println("  - Global config: ~/config.jsonc or ~/config.json")
 ```
 
 **Replacement:**
+
 ```go
 logging.Warning("No valid endpoints to serve")
 logging.Warning("Please check your configuration files:")
@@ -276,12 +307,15 @@ logging.Warning("  - Fallback: ./.mcproxy/config.jsonc and ./.mcproxy/secrets.js
 ```
 
 ### 5. Replace Server Start Message (Line 76)
+
 **Current code:**
+
 ```go
 fmt.Printf("Starting proxy server on port %s\n", port)
 ```
 
 **Replacement:**
+
 ```go
 logging.Printf("Starting proxy server on port %s", port)
 ```

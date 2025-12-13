@@ -23,12 +23,15 @@ When MCPROXY_CONFIG/MCPROXY_SECRETS environment variables are explicitly set, an
 3. The current behavior contradicts the "fail fast" principle stated in the project guidelines
 
 The issue occurs specifically in the LoadConfigHierarchical function where errors are ignored:
-- Line 269: `projectConfig, _ = loadConfigFromFile(envConfigPath)` 
+
+- Line 269: `projectConfig, _ = loadConfigFromFile(envConfigPath)`
 - Line 307: `projectSecrets, _ = loadSecretsFromFile(envSecretsPath)`
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 When MCPROXY_CONFIG is set to an invalid file path or unreadable file, the service must exit with a clear error message
 - [ ] #2 When MCPROXY_SECRETS is set to an invalid file path or unreadable file, the service must exit with a clear error message
 - [ ] #3 When MCPROXY_CONFIG contains invalid JSON/JSONC syntax, the service must exit with a parse error indicating the file and line/column if possible
@@ -39,6 +42,7 @@ The issue occurs specifically in the LoadConfigHierarchical function where error
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
+
 1. Implement loadConfigFileExclusive and loadSecretsFileExclusive functions in loader.go
 
 2. Update LoadConfigHierarchical to use these functions when environment variables are set
@@ -60,6 +64,7 @@ The issue occurs specifically in the LoadConfigHierarchical function where error
 Implementation completed successfully on 2025-12-12.
 
 Changes made:
+
 1. Created loadConfigFileExclusive and loadSecretsFileExclusive functions that properly handle errors when files are explicitly specified via environment variables
 2. Updated LoadConfigHierarchical to use exclusive loading functions when MCPROXY_CONFIG/MCPROXY_SECRETS are set
 3. The service now fails fast with clear error messages when explicitly specified files have errors
@@ -67,6 +72,7 @@ Changes made:
 5. Added integration test in config_test.go for complete flow verification
 
 The implementation ensures:
+
 - No more silent failures when env vars point to invalid files
 - Clear, actionable error messages that include the file path and specific issue
 - Graceful fallback to hierarchical mode when both files don't exist

@@ -34,7 +34,9 @@ The server in pkg/proxy/server.go currently uses http.ListenAndServe with defaul
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 Server must be configurable with read/write/idle timeouts via environment variables
 - [ ] #2 Server must support graceful shutdown on SIGINT and SIGTERM signals
 - [ ] #3 In-flight requests must complete during graceful shutdown period
@@ -146,7 +148,7 @@ func (s *Server) StartWithShutdown() error {
 
 func (s *Server) listenAndServe() error {
     mux := http.NewServeMux()
-    
+
     // Register a shutdown check middleware
     shutdownMiddleware := func(next http.Handler) http.Handler {
         return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -193,7 +195,7 @@ func (s *Server) gracefulShutdown(ctx context.Context) error {
         // Use configured timeout if available
         shutdownTimeout = time.Duration(30) * time.Second // Will be configurable
     }
-    
+
     shutdownCtx, cancel := context.WithTimeout(ctx, shutdownTimeout)
     defer cancel()
 
@@ -305,7 +307,7 @@ func TestServerContextHandling(t *testing.T) {
 
 Update CLAUDE.md to include new environment variables and configuration options:
 
-```
+```text
 ### Server Configuration
 - **MCPROXY_READ_TIMEOUT**: Read timeout in seconds (default: 30)
 - **MCPROXY_WRITE_TIMEOUT**: Write timeout in seconds (default: 30)
@@ -313,7 +315,7 @@ Update CLAUDE.md to include new environment variables and configuration options:
 - **MCPROXY_SHUTDOWN_TIMEOUT**: Graceful shutdown timeout in seconds (default: 30)
 ```
 
-## Key Implementation Details:
+## Key Implementation Details
 
 1. **Timeouts**: Configure sensible defaults that prevent resource exhaustion but allow for normal operation
 2. **Signal Handling**: Properly catch SIGINT/SIGTERM and initiate graceful shutdown

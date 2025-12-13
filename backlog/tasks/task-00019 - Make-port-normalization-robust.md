@@ -26,7 +26,9 @@ The current tests expect this behavior (lines 153-157, 159-163), but this is fra
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 NormalizePort must trim leading and trailing whitespace from input
 - [ ] #2 NormalizePort must always return canonical format (e.g., ":0080" becomes ":80")
 - [ ] #3 Error messages must be deterministic and show the cleaned input
@@ -39,17 +41,20 @@ The current tests expect this behavior (lines 153-157, 159-163), but this is fra
 
 <!-- SECTION:PLAN:BEGIN -->
 ### 1. Add input sanitization
+
 ```go
 func NormalizePort(portStr string) (string, error) {
     // Trim whitespace first
     portStr = strings.TrimSpace(portStr)
-    
+
     // Continue with existing logic...
 }
 ```
 
 ### 2. Ensure consistent normalization
+
 Instead of returning early when port starts with ":", always normalize:
+
 ```go
 if strings.HasPrefix(portStr, ":") {
     portNum := strings.TrimPrefix(portStr, ":")
@@ -66,7 +71,9 @@ if strings.HasPrefix(portStr, ":") {
 ```
 
 ### 3. Improve error handling
+
 Create a helper for consistent error messages:
+
 ```go
 func portError(original, cleaned string, err error) error {
     // Show cleaned input in error for clarity
@@ -75,18 +82,22 @@ func portError(original, cleaned string, err error) error {
 ```
 
 ### 4. Handle edge cases
+
 - Empty string after trimming should return default
 - Multiple colons should be rejected with clear error
 - Port number validation should be done after cleaning
 
 ### 5. Update tests
+
 Add new test cases for:
+
 - Whitespace trimming: " 8080 ", "\t8080\n", "  :8080  "
 - Leading zero normalization with colon: ":0080" -> ":80"
 - Mixed whitespace and invalid formats
 - Ensure all existing tests still pass
 
 ### 6. Consider additional validation
+
 - Reject ports with multiple colons explicitly
 - Better error messages for non-numeric content
 - Document the normalization behavior more clearly
@@ -116,6 +127,7 @@ Add new test cases for:
    - Confusing when whitespace is the issue
 
 ### Usage Context
+
 - Called from `cmd/mcproxy/main.go:68` with `os.Getenv("MCPROXY_PORT")`
 - Used with `http.ListenAndServe()` in `pkg/proxy/server.go:53`
 - Port format must include leading ":" for Go's HTTP server
@@ -129,29 +141,29 @@ func NormalizePort(portStr string) (string, error) {
     // 1. Trim whitespace first
     original := portStr
     portStr = strings.TrimSpace(portStr)
-    
+
     // 2. Handle empty string after trimming
     if portStr == "" {
         return ":8099", nil
     }
-    
+
     // 3. Validate format - must be number or :number
     if !isValidPortFormat(portStr) {
         return "", fmt.Errorf("invalid port format '%s': must be a number (1-65535) with optional ':' prefix", portStr)
     }
-    
+
     // 4. Extract and normalize port number
     portNum := strings.TrimPrefix(portStr, ":")
     port, err := strconv.Atoi(portNum)
     if err != nil {
         return "", fmt.Errorf("invalid port format '%s': %w", portStr, err)
     }
-    
+
     // 5. Validate port range
     if err := validatePortNumber(port); err != nil {
         return "", fmt.Errorf("invalid port format '%s': %w", portStr, err)
     }
-    
+
     // 6. Always return canonical format
     return ":" + strconv.Itoa(port), nil
 }
@@ -161,19 +173,19 @@ func isValidPortFormat(s string) bool {
     if s == "" {
         return false
     }
-    
+
     // Allow single leading colon
     if strings.HasPrefix(s, ":") {
         s = s[1:]
     }
-    
+
     // Must be digits only
     for _, r := range s {
         if r < '0' || r > '9' {
             return false
         }
     }
-    
+
     return len(s) > 0
 }
 ```
@@ -228,6 +240,7 @@ New test cases to add:
 ```
 
 Update existing tests:
+
 - Change test on lines 153-157 to expect ":8099" (empty after trimming)
 - Change test on lines 159-163 to expect ":8080" (whitespace trimmed)
 - Change test on lines 123-127 to expect ":80" (normalized)
@@ -235,6 +248,7 @@ Update existing tests:
 ### Phase 3: Additional Edge Case Handling
 
 Consider adding validation for:
+
 - Multiple colons (":8080:9090" should fail)
 - Non-printable characters
 - Unicode whitespace (use `strings.TrimSpace()` handles this)
@@ -242,6 +256,7 @@ Consider adding validation for:
 ### Phase 4: Documentation Updates
 
 Update function comment:
+
 ```go
 // NormalizePort validates and normalizes a port string to the canonical format ":port".
 // It accepts formats like "8099", ":8099", " 8099 ", "\t:8099\n" and always returns ":8099".
@@ -251,9 +266,9 @@ Update function comment:
 
 ### Phase 5: Integration Considerations
 
-1. **Environment Variable Handling**: 
+1. **Environment Variable Handling**:
    - Environment variables often have trailing newlines or spaces
-   - Current behavior would fail on `MCPROXY_PORT="8099 "` 
+   - Current behavior would fail on `MCPROXY_PORT="8099 "`
    - This fix makes it robust
 
 2. **Backward Compatibility**:
@@ -280,23 +295,27 @@ Update function comment:
 ## Additional Context
 
 ### Dependencies
+
 - Task-00011 (Support MCPROXY_PORT environment variable) is marked as Done and introduced the NormalizePort function
 - This is a pure bug fix with no breaking changes to the API
 - No integration with other components affected
 
 ### Risk Assessment
+
 - **Low Risk**: Changes are internal to NormalizePort function
 - **No Breaking Changes**: All currently valid inputs remain valid
 - **Test Changes Required**: Some tests expect current (buggy) behavior and need updating
 - **Manual Testing Recommended**: Test with environment variables containing whitespace
 
 ### Code Style Considerations
+
 - Follow existing Go conventions in the codebase
 - Use `strings.TrimSpace()` for Unicode-aware whitespace handling
 - Keep error messages consistent with existing patterns
 - Add comprehensive godoc comment updates
 
 ### Future Improvements
+
 - Consider adding integration tests for environment variable scenarios
 - Document behavior for users who might set MCPROXY_PORT with whitespace
 

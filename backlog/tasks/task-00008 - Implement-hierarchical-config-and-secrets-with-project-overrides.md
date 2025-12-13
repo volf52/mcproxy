@@ -22,7 +22,9 @@ Implement a hierarchical configuration system where global config/secrets are st
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 Support global config/secrets in ~/config.json and ~/secrets.json (both optional)
 - [x] #2 Support project-specific config/secrets in ./config.json and ./secrets.json by default (both optional)
 - [x] #3 Add MCPROXY_CONFIG and MCPROXY_SECRETS env vars to override project-specific file paths
@@ -40,6 +42,7 @@ Implement a hierarchical configuration system where global config/secrets are st
 ## Implementation Plan
 
 ### Phase 1: Create Hierarchical Loading Infrastructure
+
 1. **Create `pkg/config/loader.go`**
    - Define file paths with global and project-specific defaults
    - Add environment variable overrides for project paths
@@ -53,6 +56,7 @@ Implement a hierarchical configuration system where global config/secrets are st
    - Project secrets: `./secrets.json` or `MCPROXY_SECRETS` (optional)
 
 ### Phase 2: Implement Configuration Merging
+
 1. **Create merging utilities in `loader.go`**
    - `mergeConfigs(global, project) *Config` - merges endpoint maps
    - `mergeSecrets(global, project) Secrets` - merges secret maps
@@ -65,6 +69,7 @@ Implement a hierarchical configuration system where global config/secrets are st
    - Functions return nil when file doesn't exist (not an error)
 
 ### Phase 3: Update Main Configuration Functions
+
 1. **Modify `config.go`**
    - Update `LoadConfig()` to use hierarchical loading
    - Update `LoadSecrets()` to use hierarchical loading
@@ -78,6 +83,7 @@ Implement a hierarchical configuration system where global config/secrets are st
    - `getProjectSecretsPath() string` - returns env var or `./secrets.json`
 
 ### Phase 4: Update Main Application (`cmd/mcproxy/main.go`)
+
 1. **Modify main() function**
    - Replace single file loading with hierarchical loading
    - Add detailed logging about which files are being loaded
@@ -91,6 +97,7 @@ Implement a hierarchical configuration system where global config/secrets are st
    - Log any override warnings for conflicting keys
 
 ### Phase 5: Update Validation Logic
+
 1. **Modify `validateEndpoints()` in `config.go`**
    - Remove the hard requirement for at least one endpoint
    - Add separate validation for merged configuration
@@ -102,6 +109,7 @@ Implement a hierarchical configuration system where global config/secrets are st
    - Provide clear error messages for configuration issues
 
 ### Phase 6: Testing (`pkg/config/config_test.go`)
+
 1. **Add hierarchical loading tests**
    - Test loading with only global files
    - Test loading with only project files
@@ -115,7 +123,8 @@ Implement a hierarchical configuration system where global config/secrets are st
    - Test empty config merging
    - Test validation of merged configuration
 
-### Key Implementation Details:
+### Key Implementation Details
+
 - **File discovery**: Log which files are being searched for and loaded
 - **Optional files**: All config and secrets files are optional, no errors for missing files
 - **Merging strategy**: Project values override global values for same keys
@@ -123,18 +132,21 @@ Implement a hierarchical configuration system where global config/secrets are st
 - **Graceful degradation**: Continue running with available files, warn about issues
 - **Zero endpoint handling**: Log warning and exit gracefully when no endpoints are configured
 
-### Files to Create/Modify:
+### Files to Create/Modify
+
 - `pkg/config/loader.go` (new)
 - `pkg/config/config.go` (modify)
 - `cmd/mcproxy/main.go` (modify)
 - `pkg/config/config_test.go` (add tests)
 
-### Environment Variables:
+### Environment Variables
+
 - `MCPROXY_CONFIG` - override project config file path
 - `MCPROXY_SECRETS` - override project secrets file path
 - `MCPROXY_DEBUG` - enable detailed loading/merging logs
 
-### Validation Criteria:
+### Validation Criteria
+
 - All four config files are optional
 - Project config overrides global config for same endpoint keys
 - Project secrets override global secrets for same secret keys

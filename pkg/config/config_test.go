@@ -328,6 +328,341 @@ func TestProcessSecretTemplates(t *testing.T) {
 	}
 }
 
+func TestProcessSecretTemplatesWithEnvVars(t *testing.T) {
+	config := &Config{
+		Endpoints: map[string]Endpoint{
+			"stdio-endpoint": {
+				Type:    EndpointTypeStdio,
+				Command: []string{"/usr/local/bin/mcp-server"},
+				Env: map[string]string{
+					"API_KEY":   "{{api_token}}",
+					"LOG_LEVEL": "debug",
+					"DB_URL":    "postgres://{{db_user}}:{{db_pass}}@localhost:5432/db",
+				},
+			},
+			"http-endpoint": {
+				Type: EndpointTypeHTTP,
+				Url:  "https://api.example.com",
+				Headers: map[string]string{
+					"Authorization": "Bearer {{api_token}}",
+				},
+			},
+			"mixed-endpoint": {
+				Type:    EndpointTypeStdio,
+				Command: []string{"/usr/local/bin/mcp-server"},
+				Headers: map[string]string{
+					"X-API-Version": "{{api_version}}",
+				},
+				Env: map[string]string{
+					"SERVER_URL": "{{server_url}}",
+					"SECRET_KEY": "{{secret_key}}",
+				},
+			},
+		},
+	}
+
+	secrets := Secrets{
+		"api_token":   "secret123",
+		"db_user":     "myuser",
+		"db_pass":     "mypass",
+		"api_version": "v1.0",
+		"server_url":  "https://api.example.com",
+		"secret_key":  "key456",
+	}
+
+	processed, skipped := ProcessSecretTemplates(config, secrets)
+
+	// Check all endpoints were processed (no missing vars)
+	if len(skipped) != 0 {
+		t.Errorf("Expected 0 skipped endpoints, got %d: %v", len(skipped), skipped)
+	}
+
+	if len(processed) != 3 {
+		t.Errorf("Expected 3 processed endpoints, got %d", len(processed))
+	}
+
+	// Check stdio endpoint environment variables
+	stdioEndpoint := processed["stdio-endpoint"]
+	if stdioEndpoint.Env["API_KEY"] != "secret123" {
+		t.Errorf("Expected API_KEY 'secret123', got '%s'", stdioEndpoint.Env["API_KEY"])
+	}
+	if stdioEndpoint.Env["LOG_LEVEL"] != "debug" {
+		t.Errorf("Expected LOG_LEVEL 'debug', got '%s'", stdioEndpoint.Env["LOG_LEVEL"])
+	}
+	if stdioEndpoint.Env["DB_URL"] != "postgres://myuser:mypass@localhost:5432/db" {
+		t.Errorf("Expected DB_URL 'postgres://myuser:mypass@localhost:5432/db', got '%s'", stdioEndpoint.Env["DB_URL"])
+	}
+
+	// Check HTTP endpoint headers
+	httpEndpoint := processed["http-endpoint"]
+	if httpEndpoint.Headers["Authorization"] != "Bearer secret123" {
+		t.Errorf("Expected Authorization header 'Bearer secret123', got '%s'", httpEndpoint.Headers["Authorization"])
+	}
+
+	// Check mixed endpoint
+	mixedEndpoint := processed["mixed-endpoint"]
+	if mixedEndpoint.Headers["X-API-Version"] != "v1.0" {
+		t.Errorf("Expected X-API-Version header 'v1.0', got '%s'", mixedEndpoint.Headers["X-API-Version"])
+	}
+	if mixedEndpoint.Env["SERVER_URL"] != "https://api.example.com" {
+		t.Errorf("Expected SERVER_URL 'https://api.example.com', got '%s'", mixedEndpoint.Env["SERVER_URL"])
+	}
+	if mixedEndpoint.Env["SECRET_KEY"] != "key456" {
+		t.Errorf("Expected SECRET_KEY 'key456', got '%s'", mixedEndpoint.Env["SECRET_KEY"])
+	}
+}
+
+func TestProcessSecretTemplatesWithMissingEnvVars(t *testing.T) {
+	config := &Config{
+		Endpoints: map[string]Endpoint{
+			"stdio-missing-env": {
+				Type:    EndpointTypeStdio,
+				Command: []string{"/usr/local/bin/mcp-server"},
+				Env: map[string]string{
+					"API_KEY":   "{{missing_token}}",
+					"LOG_LEVEL": "debug",
+				},
+			},
+			"http-missing-header": {
+				Type: EndpointTypeHTTP,
+				Url:  "https://api.example.com",
+				Headers: map[string]string{
+					"Authorization": "Bearer {{missing_auth}}",
+				},
+			},
+			"stdio-valid": {
+				Type:    EndpointTypeStdio,
+				Command: []string{"/usr/local/bin/mcp-server"},
+				Env: map[string]string{
+					"LOG_LEVEL": "info",
+				},
+			},
+		},
+	}
+
+	secrets := Secrets{
+		"some_other_secret": "value123",
+	}
+
+	processed, skipped := ProcessSecretTemplates(config, secrets)
+
+	// Check processed endpoints
+	if len(processed) != 1 {
+		t.Errorf("Expected 1 processed endpoint, got %d", len(processed))
+	}
+
+	if _, exists := processed["stdio-valid"]; !exists {
+		t.Error("Expected 'stdio-valid' endpoint to be processed")
+	}
+
+	// Check skipped endpoints
+	if len(skipped) != 2 {
+		t.Errorf("Expected 2 skipped endpoints, got %d: %v", len(skipped), skipped)
+	}
+
+	expectedSkipped := []string{"stdio-missing-env", "http-missing-header"}
+	if !equalSlicesUnordered(skipped, expectedSkipped) {
+		t.Errorf("Expected skipped endpoints %v, got %v", expectedSkipped, skipped)
+	}
+
+	// Verify the valid endpoint's environment variables
+	validEndpoint := processed["stdio-valid"]
+	if validEndpoint.Env["LOG_LEVEL"] != "info" {
+		t.Errorf("Expected LOG_LEVEL 'info', got '%s'", validEndpoint.Env["LOG_LEVEL"])
+	}
+}
+
+func TestBackwardCompatibility_HTTPOnly(t *testing.T) {
+	// Test that HTTP-only configs without type field still work
+	config := &Config{
+		Endpoints: map[string]Endpoint{
+			"legacy-http": {
+				// Type field omitted - should default to HTTP
+				Url: "https://api.example.com",
+				Headers: map[string]string{
+					"Authorization": "Bearer {{api_token}}",
+					"Content-Type":  "application/json",
+				},
+			},
+			"modern-http": {
+				Type: EndpointTypeHTTP,
+				Url:  "https://api.example.com",
+				Headers: map[string]string{
+					"Authorization": "Bearer {{api_token}}",
+				},
+			},
+		},
+	}
+
+	secrets := Secrets{
+		"api_token": "secret123",
+	}
+
+	// Process templates
+	processed, skipped := ProcessSecretTemplates(config, secrets)
+
+	if len(skipped) != 0 {
+		t.Errorf("Expected 0 skipped endpoints, got %d: %v", len(skipped), skipped)
+	}
+
+	if len(processed) != 2 {
+		t.Errorf("Expected 2 processed endpoints, got %d", len(processed))
+	}
+
+	// Check legacy HTTP endpoint works
+	legacyEndpoint := processed["legacy-http"]
+	if legacyEndpoint.Type != "" && legacyEndpoint.Type != EndpointTypeHTTP {
+		t.Errorf("Expected legacy endpoint to be treated as HTTP, got type '%s'", legacyEndpoint.Type)
+	}
+	if legacyEndpoint.Headers["Authorization"] != "Bearer secret123" {
+		t.Errorf("Expected resolved Authorization header for legacy endpoint, got '%s'", legacyEndpoint.Headers["Authorization"])
+	}
+
+	// Check modern HTTP endpoint works
+	modernEndpoint := processed["modern-http"]
+	if modernEndpoint.Headers["Authorization"] != "Bearer secret123" {
+		t.Errorf("Expected resolved Authorization header for modern endpoint, got '%s'", modernEndpoint.Headers["Authorization"])
+	}
+
+	// Validate the configuration (this should pass)
+	err := validateEndpoints(processed)
+	if err != nil {
+		t.Errorf("Expected validation to pass for backward-compatible config: %v", err)
+	}
+}
+
+func TestBackwardCompatibility_ConfigLoading(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	// Create a config without type fields (legacy format)
+	legacyConfigContent := map[string]interface{}{
+		"endpoints": map[string]interface{}{
+			"api": map[string]interface{}{
+				"url": "https://api.example.com",
+				"headers": map[string]interface{}{
+					"Authorization": "Bearer {{api_token}}",
+					"Content-Type":  "application/json",
+				},
+			},
+			"webhook": map[string]interface{}{
+				"url":     "https://webhook.example.com",
+				"timeout": 30,
+			},
+		},
+		"logFile":       "/tmp/mcproxy.log",
+		"globalTimeout": 60,
+	}
+
+	data, _ := json.Marshal(legacyConfigContent)
+	os.WriteFile(configPath, data, 0o644)
+
+	secretsPath := filepath.Join(tmpDir, "secrets.json")
+	secretsContent := map[string]string{
+		"api_token": "secret123",
+	}
+	data, _ = json.Marshal(secretsContent)
+	os.WriteFile(secretsPath, data, 0o644)
+
+	// Set environment variables
+	oldConfig := os.Getenv("MCPROXY_CONFIG")
+	oldSecrets := os.Getenv("MCPROXY_SECRETS")
+	os.Setenv("MCPROXY_CONFIG", configPath)
+	os.Setenv("MCPROXY_SECRETS", secretsPath)
+	defer func() {
+		os.Setenv("MCPROXY_CONFIG", oldConfig)
+		os.Setenv("MCPROXY_SECRETS", oldSecrets)
+	}()
+
+	// Load config with defaults (this should work)
+	config, secrets, err := LoadConfigWithDefaults()
+	if err != nil {
+		t.Fatalf("Expected no error loading legacy config, got %v", err)
+	}
+
+	// Check endpoints were loaded correctly
+	if len(config.Endpoints) != 2 {
+		t.Errorf("Expected 2 endpoints, got %d", len(config.Endpoints))
+	}
+
+	// Check API endpoint
+	apiEndpoint := config.Endpoints["api"]
+	if apiEndpoint.Url != "https://api.example.com" {
+		t.Errorf("Expected API URL 'https://api.example.com', got '%s'", apiEndpoint.Url)
+	}
+	// Type should be empty (not specified) but validation should treat it as HTTP
+	if apiEndpoint.Type != "" {
+		t.Errorf("Expected empty Type for legacy endpoint, got '%s'", apiEndpoint.Type)
+	}
+
+	// Check webhook endpoint
+	webhookEndpoint := config.Endpoints["webhook"]
+	if webhookEndpoint.Url != "https://webhook.example.com" {
+		t.Errorf("Expected webhook URL 'https://webhook.example.com', got '%s'", webhookEndpoint.Url)
+	}
+
+	// Process secret templates
+	processed, skipped := ProcessSecretTemplates(config, secrets)
+	if len(skipped) != 0 {
+		t.Errorf("Expected 0 skipped endpoints, got %d: %v", len(skipped), skipped)
+	}
+
+	// Verify secret templating works
+	processedAPI := processed["api"]
+	if processedAPI.Headers["Authorization"] != "Bearer secret123" {
+		t.Errorf("Expected resolved Authorization header, got '%s'", processedAPI.Headers["Authorization"])
+	}
+
+	// Validate the configuration
+	err = validateEndpoints(processed)
+	if err != nil {
+		t.Errorf("Expected validation to pass for legacy config: %v", err)
+	}
+}
+
+func TestBackwardCompatibility_MixedConfig(t *testing.T) {
+	// Test that configs with mixed explicit and implicit types work
+	config := &Config{
+		Endpoints: map[string]Endpoint{
+			"legacy": {
+				// No type field - should default to HTTP
+				Url: "https://legacy.example.com",
+			},
+			"modern-http": {
+				Type: EndpointTypeHTTP,
+				Url:  "https://modern.example.com",
+			},
+			"modern-stdio": {
+				Type:    EndpointTypeStdio,
+				Command: []string{"/usr/local/bin/stdio-server"},
+			},
+		},
+	}
+
+	// Validate the mixed configuration
+	err := validateEndpoints(config.Endpoints)
+	if err != nil {
+		t.Errorf("Expected validation to pass for mixed config: %v", err)
+	}
+
+	// Process templates
+	secrets := Secrets{}
+	processed, skipped := ProcessSecretTemplates(config, secrets)
+
+	if len(skipped) != 0 {
+		t.Errorf("Expected 0 skipped endpoints, got %d: %v", len(skipped), skipped)
+	}
+
+	if len(processed) != 3 {
+		t.Errorf("Expected 3 processed endpoints, got %d", len(processed))
+	}
+
+	// Check that legacy endpoint was treated as HTTP
+	if _, exists := processed["legacy"]; !exists {
+		t.Error("Expected legacy endpoint to be processed")
+	}
+}
+
 // Helper function to compare string slices
 func equalSlices(a, b []string) bool {
 	if len(a) != len(b) {

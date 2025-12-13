@@ -28,6 +28,7 @@ Implement comprehensive metrics collection for monitoring the proxy's performanc
 8. Global aggregation - Overall service metrics
 
 Implementation considerations:
+
 - Use Prometheus client library for standard metrics format
 - Ensure metrics collection has minimal performance impact
 - Add configuration option to enable/disable metrics endpoint

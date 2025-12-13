@@ -5,58 +5,185 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"mcproxy/pkg/logging"
 )
 
-// client implements the MCPClient interface
+// client implements the MCPClient interface with re-initialization support
 type client struct {
-	pm       *ProcessManager
-	initOnce sync.Once
-	initDone chan struct{}
-	initErr  error
+	pm *ProcessManager
+
+	// Re-initialization support
+	initMu      sync.RWMutex
+	initArgs    *InitializeParams
+	initState   int32 // 0=not init, 1=initializing, 2=initialized, 3=error
+	initErr     error
+	initResult  *InitializeResult
+	initVersion int64 // Increment on each re-init
+
+	// Channels for coordination
+	initDone    chan struct{}
+	initChanged chan struct{} // Notified when process restarts
 }
 
 // NewMCPClient creates a new MCP client using the given process manager
 func NewMCPClient(pm *ProcessManager) MCPClient {
-	return &client{
-		pm:       pm,
-		initDone: make(chan struct{}),
+	c := &client{
+		pm:          pm,
+		initDone:    make(chan struct{}),
+		initChanged: make(chan struct{}, 1),
+	}
+
+	// Start re-initialization monitor
+	go c.reinitMonitor()
+
+	return c
+}
+
+// reinitMonitor monitors for process restarts and triggers re-initialization
+func (c *client) reinitMonitor() {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	var lastRunningState bool
+
+	for {
+		select {
+		case <-ticker.C:
+			currentlyRunning := c.pm.IsRunning()
+
+			// Detect transition from running to not running
+			if lastRunningState && !currentlyRunning {
+				logging.Printf("Client: detected process stop, will re-initialize on restart")
+				atomic.StoreInt32(&c.initState, 0)
+
+				// Notify waiters that init state changed
+				select {
+				case c.initChanged <- struct{}{}:
+				default:
+				}
+			}
+
+			lastRunningState = currentlyRunning
+
+		case <-c.initChanged:
+			// State changed, check if we need to re-initialize
+			if c.pm.IsRunning() && atomic.LoadInt32(&c.initState) == 0 {
+				go func() {
+					if _, err := c.Initialize(c.initArgs); err != nil {
+						logging.Printf("Client: failed to re-initialize: %v", err)
+					}
+				}()
+			}
+		}
 	}
 }
 
 // Initialize sends an initialize request and waits for response
+// Can be called multiple times to re-initialize after process restart
 func (c *client) Initialize(params *InitializeParams) (*InitializeResult, error) {
-	var result *InitializeResult
+	// Store init args if provided
+	if params != nil {
+		c.initMu.Lock()
+		c.initArgs = params
+		c.initMu.Unlock()
+	}
 
-	c.initOnce.Do(func() {
-		defer close(c.initDone)
+	for {
+		state := atomic.LoadInt32(&c.initState)
 
-		// Send initialize request
-		response, err := c.pm.SendRequest(context.Background(), MethodInitialize, params)
-		if err != nil {
-			c.initErr = fmt.Errorf("initialize request failed: %w", err)
-			return
+		switch state {
+		case 2: // Initialized
+			// Check if process is still running
+			if !c.pm.IsRunning() {
+				// Process died, reset state and try again
+				atomic.StoreInt32(&c.initState, 0)
+				continue
+			}
+			// Return cached result
+			c.initMu.RLock()
+			result := c.initResult
+			c.initMu.RUnlock()
+			return result, nil
+
+		case 0: // Not initialized
+			if atomic.CompareAndSwapInt32(&c.initState, 0, 1) {
+				// We won the race to initialize
+				result, err := c.doInitialize()
+				c.initMu.Lock()
+				c.initResult = result
+				c.initErr = err
+				c.initMu.Unlock()
+
+				if err != nil {
+					atomic.StoreInt32(&c.initState, 3)
+				} else {
+					atomic.StoreInt32(&c.initState, 2)
+					atomic.AddInt64(&c.initVersion, 1)
+				}
+
+				close(c.initDone)
+				c.initDone = make(chan struct{})
+				return result, err
+			}
+			// Lost race, loop again
+
+		case 1: // Another goroutine initializing
+			// Wait for completion
+			select {
+			case <-c.initDone:
+				// Check result
+				c.initMu.RLock()
+				err := c.initErr
+				result := c.initResult
+				c.initMu.RUnlock()
+				return result, err
+			case <-c.initChanged:
+				// Process restarted, try again
+				continue
+			case <-time.After(30 * time.Second):
+				return nil, fmt.Errorf("initialization timeout")
+			}
+
+		case 3: // Error state
+			// Try to re-initialize if process is running
+			if c.pm.IsRunning() {
+				atomic.StoreInt32(&c.initState, 0)
+				continue
+			}
+			return nil, fmt.Errorf("initialization failed and process is not running")
 		}
+	}
+}
 
-		if response.Error != nil {
-			c.initErr = fmt.Errorf("initialize failed: %s", response.Error.Message)
-			return
-		}
+// doInitialize performs the actual initialization work
+func (c *client) doInitialize() (*InitializeResult, error) {
+	c.initMu.RLock()
+	params := c.initArgs
+	c.initMu.RUnlock()
 
-		// Parse result
-		if err := json.Unmarshal(response.Result, &result); err != nil {
-			c.initErr = fmt.Errorf("failed to parse initialize result: %w", err)
-			return
-		}
+	if params == nil {
+		return nil, fmt.Errorf("no initialization parameters provided")
+	}
 
-		c.initErr = nil
-	})
+	logging.Printf("Client: initializing MCP connection")
 
-	// Wait for initialization to complete
-	<-c.initDone
-	if c.initErr != nil {
-		return nil, c.initErr
+	// Send initialize request
+	response, err := c.pm.SendRequest(context.Background(), MethodInitialize, params)
+	if err != nil {
+		return nil, fmt.Errorf("initialize request failed: %w", err)
+	}
+
+	if response.Error != nil {
+		return nil, fmt.Errorf("initialize failed: %s", response.Error.Message)
+	}
+
+	// Parse result using mapToStruct
+	var result InitializeResult
+	if err := mapToStruct(response.Result, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse initialize result: %w", err)
 	}
 
 	// Send initialized notification
@@ -64,7 +191,8 @@ func (c *client) Initialize(params *InitializeParams) (*InitializeResult, error)
 		return nil, fmt.Errorf("failed to send initialized notification: %w", err)
 	}
 
-	return result, nil
+	logging.Printf("Client: successfully initialized MCP connection (protocol version: %s)", result.ProtocolVersion)
+	return &result, nil
 }
 
 // Initialized sends the initialized notification
@@ -73,8 +201,18 @@ func (c *client) Initialized() error {
 	return c.pm.SendNotification(MethodInitialized, params)
 }
 
+// EnsureInitialized ensures the client is initialized, re-initializing if necessary
+func (c *client) EnsureInitialized() error {
+	_, err := c.Initialize(nil)
+	return err
+}
+
 // ToolsList sends a tools/list request
 func (c *client) ToolsList(params *ToolsListParams) (*ToolsListResult, error) {
+	if err := c.EnsureInitialized(); err != nil {
+		return nil, fmt.Errorf("initialization failed: %w", err)
+	}
+
 	response, err := c.pm.SendRequest(context.Background(), MethodToolsList, params)
 	if err != nil {
 		return nil, err
@@ -85,7 +223,7 @@ func (c *client) ToolsList(params *ToolsListParams) (*ToolsListResult, error) {
 	}
 
 	var result ToolsListResult
-	if err := json.Unmarshal(response.Result, &result); err != nil {
+	if err := mapToStruct(response.Result, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse tools/list result: %w", err)
 	}
 
@@ -94,6 +232,10 @@ func (c *client) ToolsList(params *ToolsListParams) (*ToolsListResult, error) {
 
 // ToolsCall sends a tools/call request
 func (c *client) ToolsCall(params *ToolsCallParams) (*ToolResult, error) {
+	if err := c.EnsureInitialized(); err != nil {
+		return nil, fmt.Errorf("initialization failed: %w", err)
+	}
+
 	response, err := c.pm.SendRequest(context.Background(), MethodToolsCall, params)
 	if err != nil {
 		return nil, err
@@ -104,7 +246,7 @@ func (c *client) ToolsCall(params *ToolsCallParams) (*ToolResult, error) {
 	}
 
 	var result ToolResult
-	if err := json.Unmarshal(response.Result, &result); err != nil {
+	if err := mapToStruct(response.Result, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse tools/call result: %w", err)
 	}
 
@@ -113,6 +255,10 @@ func (c *client) ToolsCall(params *ToolsCallParams) (*ToolResult, error) {
 
 // ResourcesList sends a resources/list request
 func (c *client) ResourcesList(params *ResourcesListParams) (*ResourcesListResult, error) {
+	if err := c.EnsureInitialized(); err != nil {
+		return nil, fmt.Errorf("initialization failed: %w", err)
+	}
+
 	response, err := c.pm.SendRequest(context.Background(), MethodResourcesList, params)
 	if err != nil {
 		return nil, err
@@ -123,7 +269,7 @@ func (c *client) ResourcesList(params *ResourcesListParams) (*ResourcesListResul
 	}
 
 	var result ResourcesListResult
-	if err := json.Unmarshal(response.Result, &result); err != nil {
+	if err := mapToStruct(response.Result, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse resources/list result: %w", err)
 	}
 
@@ -132,6 +278,10 @@ func (c *client) ResourcesList(params *ResourcesListParams) (*ResourcesListResul
 
 // ResourcesRead sends a resources/read request
 func (c *client) ResourcesRead(params *ResourceReadParams) (*ResourceContents, error) {
+	if err := c.EnsureInitialized(); err != nil {
+		return nil, fmt.Errorf("initialization failed: %w", err)
+	}
+
 	response, err := c.pm.SendRequest(context.Background(), MethodResourcesRead, params)
 	if err != nil {
 		return nil, err
@@ -142,7 +292,7 @@ func (c *client) ResourcesRead(params *ResourceReadParams) (*ResourceContents, e
 	}
 
 	var result ResourceContents
-	if err := json.Unmarshal(response.Result, &result); err != nil {
+	if err := mapToStruct(response.Result, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse resources/read result: %w", err)
 	}
 
@@ -151,6 +301,10 @@ func (c *client) ResourcesRead(params *ResourceReadParams) (*ResourceContents, e
 
 // PromptsList sends a prompts/list request
 func (c *client) PromptsList(params *PromptsListParams) (*PromptsListResult, error) {
+	if err := c.EnsureInitialized(); err != nil {
+		return nil, fmt.Errorf("initialization failed: %w", err)
+	}
+
 	response, err := c.pm.SendRequest(context.Background(), MethodPromptsList, params)
 	if err != nil {
 		return nil, err
@@ -161,7 +315,7 @@ func (c *client) PromptsList(params *PromptsListParams) (*PromptsListResult, err
 	}
 
 	var result PromptsListResult
-	if err := json.Unmarshal(response.Result, &result); err != nil {
+	if err := mapToStruct(response.Result, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse prompts/list result: %w", err)
 	}
 
@@ -170,6 +324,10 @@ func (c *client) PromptsList(params *PromptsListParams) (*PromptsListResult, err
 
 // PromptsGet sends a prompts/get request
 func (c *client) PromptsGet(params *PromptsGetParams) (*GetPromptResult, error) {
+	if err := c.EnsureInitialized(); err != nil {
+		return nil, fmt.Errorf("initialization failed: %w", err)
+	}
+
 	response, err := c.pm.SendRequest(context.Background(), MethodPromptsGet, params)
 	if err != nil {
 		return nil, err
@@ -180,11 +338,52 @@ func (c *client) PromptsGet(params *PromptsGetParams) (*GetPromptResult, error) 
 	}
 
 	var result GetPromptResult
-	if err := json.Unmarshal(response.Result, &result); err != nil {
+	if err := mapToStruct(response.Result, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse prompts/get result: %w", err)
 	}
 
 	return &result, nil
+}
+
+// HealthCheck performs a health check on the MCP connection
+func (c *client) HealthCheck() error {
+	// Check if process manager is running
+	if !c.pm.IsRunning() {
+		return fmt.Errorf("process is not running")
+	}
+
+	// Try to send a lightweight request to verify the connection is working
+	// Using tools/list with nil params as a simple health check
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	response, err := c.pm.SendRequest(ctx, MethodToolsList, nil)
+	if err != nil {
+		// Trigger re-initialization on failure
+		atomic.StoreInt32(&c.initState, 0)
+		select {
+		case c.initChanged <- struct{}{}:
+		default:
+		}
+		return fmt.Errorf("health check failed: %w", err)
+	}
+
+	if response.Error != nil {
+		return fmt.Errorf("health check failed: %s", response.Error.Message)
+	}
+
+	return nil
+}
+
+// IsHealthy returns the current health status of the client
+func (c *client) IsHealthy() bool {
+	// Check if process is running and initialized
+	if !c.pm.IsRunning() {
+		return false
+	}
+
+	state := atomic.LoadInt32(&c.initState)
+	return state == 2 // Initialized state
 }
 
 // Close closes the connection
@@ -197,6 +396,8 @@ type MCPHTTPBridge struct {
 	client MCPClient
 	// Cached tool list to avoid repeated requests
 	tools []Tool
+	// Store init args for re-initialization
+	initArgs []string
 }
 
 // NewMCPHTTPBridge creates a new bridge between MCP and HTTP
@@ -208,6 +409,9 @@ func NewMCPHTTPBridge(client MCPClient) *MCPHTTPBridge {
 
 // Initialize initializes the MCP connection
 func (b *MCPHTTPBridge) Initialize(args []string) error {
+	// Store args for potential re-initialization
+	b.initArgs = args
+
 	params := &InitializeParams{
 		ProtocolVersion: "2024-11-05",
 		Capabilities: ClientCapabilities{

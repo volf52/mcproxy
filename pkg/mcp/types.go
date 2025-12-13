@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"fmt"
 )
 
 // JSON-RPC 2.0 base types
@@ -378,6 +379,12 @@ type MCPClient interface {
 	// PromptsGet sends a prompts/get request
 	PromptsGet(params *PromptsGetParams) (*GetPromptResult, error)
 
+	// HealthCheck performs a health check on the MCP connection
+	HealthCheck() error
+
+	// IsHealthy returns the current health status of the client
+	IsHealthy() bool
+
 	// Close closes the connection
 	Close() error
 }
@@ -419,4 +426,25 @@ func NewInvalidParamsError(data interface{}) *JSONRPCError {
 
 func NewInternalError(data interface{}) *JSONRPCError {
 	return NewJSONRPCError(InternalError, "Internal error", data)
+}
+
+// mapToStruct safely unmarshals JSON-RPC result data to a target struct.
+// It handles edge cases like nil data, empty responses, and malformed JSON.
+func mapToStruct(data json.RawMessage, target interface{}) error {
+	// Handle nil or empty data
+	if len(data) == 0 || string(data) == "null" {
+		return fmt.Errorf("empty result data")
+	}
+
+	// Check if data is valid JSON
+	if !json.Valid(data) {
+		return fmt.Errorf("invalid JSON data: %s", string(data))
+	}
+
+	// Unmarshal to target
+	if err := json.Unmarshal(data, target); err != nil {
+		return fmt.Errorf("failed to unmarshal result: %w", err)
+	}
+
+	return nil
 }

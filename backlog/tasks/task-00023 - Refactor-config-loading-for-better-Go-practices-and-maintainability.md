@@ -19,6 +19,7 @@ priority: medium
 The current exclusive config loading implementation works correctly but can be improved to follow Go best practices more closely. Based on a Go expert code review, several improvements would make the code more idiomatic, maintainable, and robust.
 
 Key areas for improvement:
+
 1. Error handling with custom error types
 2. Function complexity reduction
 3. Better testability with interfaces
@@ -27,7 +28,9 @@ Key areas for improvement:
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 #1 Implement custom error types (ConfigError) with proper error wrapping for better error handling
 - [ ] #2 #2 Refactor LoadConfigHierarchical into smaller, focused functions (determineLoadingMode, loadExclusiveConfig, loadHierarchicalConfig)
 - [ ] #3 #3 Add FileReader interface for file operations to improve testability with mocks

@@ -18,7 +18,9 @@ Update the configuration loader to use ~/.config/mcproxy/config.jsonc as the def
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 Default config path changes from ./config.json to ~/.config/mcproxy/config.jsonc
 - [x] #2 Environment variable MCPROXY_CONFIG still overrides the default path
 - [ ] #3 Create ~/.config/mcproxy directory if it doesn't exist with proper error handling

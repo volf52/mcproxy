@@ -458,6 +458,266 @@ func TestIsValidHeaderValue(t *testing.T) {
 	}
 }
 
+func TestValidateStdioEndpoints(t *testing.T) {
+	tests := []struct {
+		name        string
+		endpoints   map[string]Endpoint
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "valid stdio endpoint",
+			endpoints: map[string]Endpoint{
+				"mcp-server": {
+					Type:    EndpointTypeStdio,
+					Command: []string{"/usr/local/bin/mcp-server"},
+					Env: map[string]string{
+						"API_KEY":   "secret123",
+						"LOG_LEVEL": "debug",
+					},
+					Args: []string{"--init"},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "valid stdio endpoint without env and args",
+			endpoints: map[string]Endpoint{
+				"simple-server": {
+					Type:    EndpointTypeStdio,
+					Command: []string{"/usr/bin/simple-server"},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "stdio endpoint missing command",
+			endpoints: map[string]Endpoint{
+				"mcp-server": {
+					Type: EndpointTypeStdio,
+					Env: map[string]string{
+						"API_KEY": "secret123",
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "command is required for stdio endpoints",
+		},
+		{
+			name: "stdio endpoint with empty command array",
+			endpoints: map[string]Endpoint{
+				"mcp-server": {
+					Type:    EndpointTypeStdio,
+					Command: []string{},
+				},
+			},
+			expectError: true,
+			errorMsg:    "command is required for stdio endpoints",
+		},
+		{
+			name: "stdio endpoint with empty command component",
+			endpoints: map[string]Endpoint{
+				"mcp-server": {
+					Type:    EndpointTypeStdio,
+					Command: []string{"/usr/local/bin/mcp-server", ""},
+				},
+			},
+			expectError: true,
+			errorMsg:    "command component cannot be empty",
+		},
+		{
+			name: "stdio endpoint with invalid characters in command",
+			endpoints: map[string]Endpoint{
+				"mcp-server": {
+					Type:    EndpointTypeStdio,
+					Command: []string{"/usr/local/bin/mcp-server\n"},
+				},
+			},
+			expectError: true,
+			errorMsg:    "command component contains invalid characters",
+		},
+		{
+			name: "stdio endpoint with URL (should fail)",
+			endpoints: map[string]Endpoint{
+				"mcp-server": {
+					Type:    EndpointTypeStdio,
+					Command: []string{"/usr/local/bin/mcp-server"},
+					Url:     "https://api.example.com",
+				},
+			},
+			expectError: true,
+			errorMsg:    "url is not allowed for stdio endpoints",
+		},
+		{
+			name: "HTTP endpoint with command (should fail)",
+			endpoints: map[string]Endpoint{
+				"api": {
+					Type:    EndpointTypeHTTP,
+					Url:     "https://api.example.com",
+					Command: []string{"/usr/local/bin/mcp-server"},
+				},
+			},
+			expectError: true,
+			errorMsg:    "command is not allowed for HTTP endpoints",
+		},
+		{
+			name: "HTTP endpoint with env (should fail)",
+			endpoints: map[string]Endpoint{
+				"api": {
+					Type: EndpointTypeHTTP,
+					Url:  "https://api.example.com",
+					Env: map[string]string{
+						"API_KEY": "secret123",
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "env is not allowed for HTTP endpoints",
+		},
+		{
+			name: "HTTP endpoint with args (should fail)",
+			endpoints: map[string]Endpoint{
+				"api": {
+					Type: EndpointTypeHTTP,
+					Url:  "https://api.example.com",
+					Args: []string{"--init"},
+				},
+			},
+			expectError: true,
+			errorMsg:    "args is not allowed for HTTP endpoints",
+		},
+		{
+			name: "invalid endpoint type",
+			endpoints: map[string]Endpoint{
+				"invalid": {
+					Type:    EndpointType("invalid"),
+					Command: []string{"/usr/bin/invalid"},
+				},
+			},
+			expectError: true,
+			errorMsg:    "invalid endpoint type 'invalid', must be 'http' or 'stdio'",
+		},
+		{
+			name: "stdio endpoint with invalid env key",
+			endpoints: map[string]Endpoint{
+				"mcp-server": {
+					Type:    EndpointTypeStdio,
+					Command: []string{"/usr/local/bin/mcp-server"},
+					Env: map[string]string{
+						"": "value",
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "environment variable key cannot be empty",
+		},
+		{
+			name: "stdio endpoint with invalid characters in env key",
+			endpoints: map[string]Endpoint{
+				"mcp-server": {
+					Type:    EndpointTypeStdio,
+					Command: []string{"/usr/local/bin/mcp-server"},
+					Env: map[string]string{
+						"KEY\x00": "value",
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "environment variable key contains invalid characters",
+		},
+		{
+			name: "stdio endpoint with invalid characters in env value",
+			endpoints: map[string]Endpoint{
+				"mcp-server": {
+					Type:    EndpointTypeStdio,
+					Command: []string{"/usr/local/bin/mcp-server"},
+					Env: map[string]string{
+						"KEY": "value\x00",
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "environment variable value contains invalid characters",
+		},
+		{
+			name: "stdio endpoint with empty arg",
+			endpoints: map[string]Endpoint{
+				"mcp-server": {
+					Type:    EndpointTypeStdio,
+					Command: []string{"/usr/local/bin/mcp-server"},
+					Args:    []string{"--init", ""},
+				},
+			},
+			expectError: true,
+			errorMsg:    "arg cannot be empty",
+		},
+		{
+			name: "mixed HTTP and stdio endpoints",
+			endpoints: map[string]Endpoint{
+				"http-api": {
+					Type: EndpointTypeHTTP,
+					Url:  "https://api.example.com",
+					Headers: map[string]string{
+						"Authorization": "Bearer token123",
+					},
+				},
+				"stdio-mcp": {
+					Type:    EndpointTypeStdio,
+					Command: []string{"/usr/local/bin/mcp-server"},
+					Env: map[string]string{
+						"API_KEY": "secret456",
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "HTTP endpoint without type field (backward compatibility)",
+			endpoints: map[string]Endpoint{
+				"http-api": {
+					Url: "https://api.example.com",
+					Headers: map[string]string{
+						"Authorization": "Bearer token123",
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "stdio endpoint with tab in command",
+			endpoints: map[string]Endpoint{
+				"mcp-server": {
+					Type:    EndpointTypeStdio,
+					Command: []string{"/usr/local/bin/mcp-server\t"},
+				},
+			},
+			expectError: true,
+			errorMsg:    "command component contains invalid characters",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateEndpoints(tt.endpoints)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("validateEndpoints() expected error but got none")
+					return
+				}
+
+				if tt.errorMsg != "" && !containsSubstring(err.Error(), tt.errorMsg) {
+					t.Errorf("validateEndpoints() error = %v, expected to contain %q", err, tt.errorMsg)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("validateEndpoints() unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestValidationErrors(t *testing.T) {
 	t.Run("single error", func(t *testing.T) {
 		var errors validationErrors

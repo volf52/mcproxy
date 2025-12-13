@@ -21,7 +21,9 @@ Update the proxy registry to register endpoints with '/mcp/{name}' instead of '/
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 Endpoints are registered at '/mcp/{name}' instead of '/{name}'
 - [ ] #2 Incoming requests to '/mcp/{name}' are properly forwarded to configured upstreams
 - [ ] #3 Documentation is updated to reflect the new endpoint pattern
@@ -34,16 +36,20 @@ Update the proxy registry to register endpoints with '/mcp/{name}' instead of '/
 ## Detailed Implementation Plan: Add /mcp prefix to dynamic endpoints
 
 ### Current Implementation Analysis
+
 Based on code analysis, endpoints are currently registered using `/{name}` pattern in `pkg/proxy/server.go:36`:
+
 ```go
 pattern := fmt.Sprintf("/%s", name)
 ```
 
 ### Implementation Strategy
+
 **Approach**: Minimal, focused change to only modify the URL pattern while preserving all existing functionality.
 
 ### Phase 1: Core Implementation (Critical Path)
-1. **Update URL Pattern in pkg/proxy/server.go** 
+
+1. **Update URL Pattern in pkg/proxy/server.go**
    - **File**: `/home/volfy/hobby/mcpproxy/pkg/proxy/server.go`
    - **Line**: 36
    - **Change**: `pattern := fmt.Sprintf("/%s", name)` → `pattern := fmt.Sprintf("/mcp/%s", name)`
@@ -58,7 +64,8 @@ pattern := fmt.Sprintf("/%s", name)
    - **New**: Should return 404 for `/mcp` and `/mcp/*` when no endpoint matches
 
 ### Phase 2: Documentation Updates
-3. **Update README.md Documentation**
+
+1. **Update README.md Documentation**
    - **File**: `/home/volfy/hobby/mcpproxy/README.md`
    - **Lines**: 132, 201
    - **Changes**:
@@ -66,16 +73,17 @@ pattern := fmt.Sprintf("/%s", name)
      - Line 201: `Endpoints: Each endpoint registers a POST handler at /mcp/{name}`
    - **Configuration Examples**: Update example sections to reflect new `/mcp/{name}` pattern
 
-4. **Update CLAUDE.md Project Instructions**
+2. **Update CLAUDE.md Project Instructions**
    - **File**: `/home/volfy/hobby/mcpproxy/CLAUDE.md`
    - **Section**: "Request Flow"  
    - **Change**: Update "registers a POST handler at /{endpoint_name}" → "registers a POST handler at /mcp/{endpoint_name}"
 
 ### Phase 3: Test Implementation (Critical for Quality)
-5. **Create Server/Proxy Tests** (New test file needed)
+
+1. **Create Server/Proxy Tests** (New test file needed)
    - **New File**: `/home/volfy/hobby/mcpproxy/pkg/proxy/server_test.go`
    - **Test Cases**:
-     - Test endpoint registration at `/mcp/{name}` 
+     - Test endpoint registration at `/mcp/{name}`
      - Test POST request forwarding to `/mcp/{name}`
      - Test 404 for non-existent `/mcp/{name}` endpoints
      - Test 405 for non-POST requests to `/mcp/{name}`
@@ -84,19 +92,20 @@ pattern := fmt.Sprintf("/%s", name)
      - Test endpoints with hyphens in names (e.g., `/mcp/slack-webhook`)
    - **Test Structure**: Use `httptest.NewServer` for integration testing
 
-6. **Update Existing Test References**
+2. **Update Existing Test References**
    - **File**: Search codebase for any hardcoded `/{name}` patterns in tests
    - **Action**: Update to use `/mcp/{name}` pattern
    - **Current Status**: No existing server tests found, so this may be minimal
 
 ### Phase 4: Validation & Edge Cases
-7. **Edge Case Handling**
+
+1. **Edge Case Handling**
    - **Endpoint name validation**: Ensure names with slashes are handled safely
    - **URL pattern conflicts**: Verify `/mcp` prefix doesn't conflict with root handler
    - **Path cleaning**: Ensure `http.NewServeMux` handles the patterns correctly
    - **Backwards compatibility**: Document that this is a breaking change
 
-8. **Integration Testing**
+2. **Integration Testing**
    - **Manual Test**: Start server with config containing endpoints
    - **Verify**: `curl -X POST http://localhost:8099/mcp/endpoint-name` works
    - **Verify**: `curl -X GET http://localhost:8099/mcp/endpoint-name` returns 405
@@ -104,12 +113,14 @@ pattern := fmt.Sprintf("/%s", name)
    - **Verify**: `curl http://localhost:8099/` returns service info
 
 ### Phase 5: Logging & Monitoring Updates
-9. **Update Logging Messages**
+
+1. **Update Logging Messages**
    - **File**: Check if any log messages reference endpoint URLs
    - **Action**: Update any hardcoded URL patterns in logging
    - **Current**: `LogEndpointRegistration` only logs name and upstream URL, no change needed
 
 ### Implementation Notes
+
 - **Breaking Change**: This is a breaking change for existing clients
 - **Configuration**: No config file changes needed - only runtime behavior changes
 - **Dependencies**: No new dependencies required
@@ -117,6 +128,7 @@ pattern := fmt.Sprintf("/%s", name)
 - **Security**: No security implications
 
 ### Test Strategy
+
 - Use table-driven tests for comprehensive coverage
 - Mock upstream servers for isolated testing  
 - Test both HTTP and HTTPS upstreams
@@ -124,12 +136,14 @@ pattern := fmt.Sprintf("/%s", name)
 - Test secret templating functionality with new paths
 
 ### Rollback Plan
+
 If issues arise, rollback is simple: revert the single line change in server.go line 36 back to `fmt.Sprintf("/%s", name)`
 <!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
+
 - **Breaking Change**: This is a breaking change for existing clients
 - **Configuration**: No config file changes needed - only runtime behavior changes
 - **Dependencies**: No new dependencies required
@@ -137,6 +151,7 @@ If issues arise, rollback is simple: revert the single line change in server.go 
 - **Security**: No security implications
 
 ### Test Strategy
+
 - Use table-driven tests for comprehensive coverage
 - Mock upstream servers for isolated testing  
 - Test both HTTP and HTTPS upstreams
@@ -144,6 +159,7 @@ If issues arise, rollback is simple: revert the single line change in server.go 
 - Test secret templating functionality with new paths
 
 ### Rollback Plan
+
 If issues arise, rollback is simple: revert the single line change in server.go line 36 back to `fmt.Sprintf("/%s", name)`
 <!-- SECTION:PLAN:END -->
 <!-- SECTION:NOTES:END -->

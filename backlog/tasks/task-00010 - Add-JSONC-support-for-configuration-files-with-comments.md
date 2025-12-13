@@ -18,7 +18,9 @@ Enhance the configuration loader to support JSONC (JSON with Comments) format fo
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [x] #1 Research and select a lightweight JSONC parsing library (e.g., github.com/marcozac/go-jsonc)
 - [x] #2 Add JSONC library to go.mod with minimal external dependencies
 - [x] #3 Support both .json and .jsonc file extensions for both config and secrets files

@@ -448,6 +448,7 @@ func processEndpointTemplating(endpoint Endpoint, secrets Secrets) (Endpoint, []
 	processed := endpoint
 	processed.Headers = make(map[string]string)
 
+	// Process headers
 	for headerName, headerValue := range endpoint.Headers {
 		resolvedValue, missingVars, err := substituteTemplate(headerValue, secrets)
 		if err != nil {
@@ -459,6 +460,23 @@ func processEndpointTemplating(endpoint Endpoint, secrets Secrets) (Endpoint, []
 
 		allMissingVars = append(allMissingVars, missingVars...)
 		processed.Headers[headerName] = resolvedValue
+	}
+
+	// Process environment variables for stdio endpoints
+	if len(endpoint.Env) > 0 {
+		processed.Env = make(map[string]string)
+		for envName, envValue := range endpoint.Env {
+			resolvedValue, missingVars, err := substituteTemplate(envValue, secrets)
+			if err != nil {
+				logging.Printf("Error processing environment variable '%s': %v", envName, err)
+				logging.Debugf("Template error details: env='%s', value='%s', error=%v", envName, envValue, err)
+				// Use original value if template processing fails
+				resolvedValue = envValue
+			}
+
+			allMissingVars = append(allMissingVars, missingVars...)
+			processed.Env[envName] = resolvedValue
+		}
 	}
 
 	return processed, allMissingVars

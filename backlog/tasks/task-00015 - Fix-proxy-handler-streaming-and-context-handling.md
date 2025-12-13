@@ -39,7 +39,9 @@ These issues violate HTTP proxy best practices and can cause protocol errors, re
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 [ ] Request bodies are streamed without buffering entire content in memory
 - [ ] #2 [ ] Client context is properly propagated to upstream requests
 - [ ] #3 [ ] Upstream requests are cancelled when client disconnects
@@ -63,6 +65,7 @@ These issues violate HTTP proxy best practices and can cause protocol errors, re
 ## Implementation Plan with Code Examples
 
 ### Step 1: Update createUpstreamRequest Signature
+
 ```go
 // New signature with context and size limit
 func (s *Server) createUpstreamRequest(
@@ -74,6 +77,7 @@ func (s *Server) createUpstreamRequest(
 ```
 
 ### Step 2: Add Request Size Validation
+
 ```go
 // Check Content-Length if present
 if contentLength := r.ContentLength; contentLength > maxBodySize {
@@ -86,6 +90,7 @@ if contentLength := r.ContentLength; contentLength > maxBodySize {
 ```
 
 ### Step 3: Implement Streaming Request Creation
+
 ```go
 // Create request with context and streaming body
 upstreamReq, err := http.NewRequestWithContext(
@@ -100,6 +105,7 @@ if err != nil {
 ```
 
 ### Step 4: Add Header Filtering
+
 ```go
 // Filter out hop-by-hop headers
 hopByHopHeaders := map[string]bool{
@@ -125,6 +131,7 @@ for key, values := range r.Header {
 ```
 
 ### Step 5: Set Proper Host Header
+
 ```go
 // Parse upstream URL to set correct Host
 if parsedURL, err := url.Parse(endpoint.Url); err == nil {
@@ -133,6 +140,7 @@ if parsedURL, err := url.Parse(endpoint.Url); err == nil {
 ```
 
 ### Step 6: Add Response Streaming Improvement
+
 ```go
 // In createProxyHandler, improve response handling
 // Flush headers immediately
@@ -170,7 +178,9 @@ case <-ctx.Done():
 ```
 
 ### Step 7: Add Configuration Options
+
 Add to config.Endpoint:
+
 ```go
 type Endpoint struct {
     Url            string            `json:"url"`
@@ -181,6 +191,7 @@ type Endpoint struct {
 ```
 
 ### Step 8: Create Custom Error Types
+
 ```go
 type RequestTooLargeError struct {
     Size     int64
@@ -195,6 +206,7 @@ func (e *RequestTooLargeError) Error() string {
 ```
 
 ### Step 9: Update Handler Logic
+
 ```go
 func (s *Server) createProxyHandler(name string, endpoint config.Endpoint) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
@@ -239,7 +251,7 @@ func (s *Server) createProxyHandler(name string, endpoint config.Endpoint) http.
 
 ### Step 10: Testing Strategy
 
-#### Unit Tests to Add:
+#### Unit Tests to Add
 
 1. **Streaming Body Test** - Verify large bodies don't consume excessive memory
 
@@ -253,7 +265,7 @@ func (s *Server) createProxyHandler(name string, endpoint config.Endpoint) http.
 
 ### Additional Considerations
 
-#### Edge Cases to Handle:
+#### Edge Cases to Handle
 
 1. **Chunked Transfer Encoding** - Client sends chunked body without Content-Length
 
@@ -265,7 +277,7 @@ func (s *Server) createProxyHandler(name string, endpoint config.Endpoint) http.
 
 5. **Multiple Values per Header** - Preserve all values for non-hop-by-hop headers
 
-#### Performance Metrics to Track:
+#### Performance Metrics to Track
 
 - Memory usage per request (should stay constant)
 
@@ -275,7 +287,7 @@ func (s *Server) createProxyHandler(name string, endpoint config.Endpoint) http.
 
 - Connection reuse efficiency
 
-#### Monitoring Points:
+#### Monitoring Points
 
 - Log when requests exceed size thresholds
 

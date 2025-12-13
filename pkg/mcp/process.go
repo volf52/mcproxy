@@ -16,8 +16,11 @@ import (
 )
 
 const (
-	// MaxMessageSize is the maximum size of a JSON-RPC message
-	MaxMessageSize = 4 * 1024 * 1024 // 4MB
+	// MaxTokenSize is the maximum size of a JSON-RPC message (4MB as per MCP spec)
+	MaxTokenSize = 4 * 1024 * 1024 // 4MB
+	// MaxMessageSize is deprecated, use MaxTokenSize instead
+	// Kept for backward compatibility
+	MaxMessageSize = MaxTokenSize
 	// DefaultRestartDelay is the delay before restarting a failed process
 	DefaultRestartDelay = 5 * time.Second
 	// MaxRestartAttempts is the maximum number of restart attempts
@@ -111,6 +114,9 @@ func (pm *ProcessManager) Stop() error {
 	if pm.stdin != nil {
 		pm.stdin.Close()
 	}
+
+	// Clean up any pending requests
+	pm.cleanupPendingRequests(fmt.Errorf("process stopped"))
 
 	// Wait for process to finish
 	<-pm.done
@@ -238,8 +244,8 @@ func (pm *ProcessManager) startProcess(ctx context.Context) error {
 
 	// Set up stdout scanner with large buffer
 	scanner := bufio.NewScanner(stdout)
-	buf := make([]byte, 0, MaxMessageSize)
-	scanner.Buffer(buf, MaxMessageSize)
+	buf := make([]byte, 0, MaxTokenSize)
+	scanner.Buffer(buf, MaxTokenSize)
 	scanner.Split(bufio.ScanLines)
 	pm.stdout = scanner
 
@@ -294,8 +300,12 @@ func (pm *ProcessManager) readMessages() {
 		logging.Printf("Process manager: failed to parse JSON-RPC message: %s", line)
 	}
 
+	// stdout closed or error occurred, clean up pending requests
 	if err := pm.stdout.Err(); err != nil {
 		logging.Printf("Process manager: stdout read error: %v", err)
+		pm.cleanupPendingRequests(fmt.Errorf("stdout read error: %w", err))
+	} else {
+		pm.cleanupPendingRequests(fmt.Errorf("stdout closed"))
 	}
 }
 
@@ -403,6 +413,36 @@ func (pm *ProcessManager) SendNotification(method string, params interface{}) er
 	}
 
 	return pm.sendMessage(&notification)
+}
+
+// cleanupPendingRequests closes all pending request channels and clears the map
+func (pm *ProcessManager) cleanupPendingRequests(err error) {
+	pm.reqMu.Lock()
+	defer pm.reqMu.Unlock()
+
+	// Clear ALL pending requests
+	for id, ch := range pm.pendingRequests {
+		// Create error response
+		errorResp := &JSONRPCResponse{
+			JSONRPC: JSONRPCVersion20,
+			ID:      id,
+			Error:   NewInternalError("process terminated"),
+		}
+
+		// Send error to waiting goroutine (non-blocking)
+		select {
+		case ch <- errorResp:
+		default:
+			// Channel is closed or full
+		}
+		close(ch)
+	}
+
+	// Clear the map
+	pm.pendingRequests = make(map[interface{}]chan *JSONRPCResponse)
+
+	// Log cleanup
+	logging.Printf("Process manager: cleaned up pending requests due to: %v", err)
 }
 
 // sendMessage sends a JSON-RPC message to the process

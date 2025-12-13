@@ -52,6 +52,7 @@
         },
         "type": {
           "description": "Endpoint type: 'http' for HTTP upstream or 'stdio' for MCP stdio process (default: 'http')",
+          "enum": ["http", "stdio"],
           "type": "string"
         },
         "url": {
