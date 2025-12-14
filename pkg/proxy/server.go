@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -99,7 +100,8 @@ type Server struct {
 	port           string
 	endpoints      map[string]config.Endpoint
 	serverConfig   config.ServerConfig
-	httpClient     *http.Client
+	client         HTTPClient   // Use HTTPClient interface for testability
+	httpClient     *http.Client // Keep for backward compatibility
 	server         *http.Server
 	serverMu       sync.RWMutex // Protects access to the server field
 	shutdownWG     sync.WaitGroup
@@ -136,13 +138,26 @@ func (s *Server) IsShuttingDown() bool {
 
 // NewServer creates a new proxy server instance
 func NewServer(port string, endpoints map[string]config.Endpoint, serverConfig config.ServerConfig) *Server {
+	return NewServerWithClient(port, endpoints, serverConfig, &DefaultHTTPClientFactory{})
+}
+
+// NewServerWithClient creates a new proxy server with a custom HTTP client factory
+func NewServerWithClient(port string, endpoints map[string]config.Endpoint, serverConfig config.ServerConfig, factory HTTPClientFactory) *Server {
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	client := factory.CreateClient()
+
+	// Also keep the real HTTP client for backward compatibility
+	httpClient := &http.Client{}
+	if wrapper, ok := client.(*httpClientWrapper); ok {
+		httpClient = wrapper.client
+	}
 
 	return &Server{
 		port:           port,
 		endpoints:      endpoints,
 		serverConfig:   serverConfig,
-		httpClient:     CreateHTTPClient(),
+		client:         client,
+		httpClient:     httpClient,
 		shutdownCtx:    shutdownCtx,
 		shutdownCancel: shutdownCancel,
 		isShuttingDown: atomicBool{},
@@ -383,7 +398,7 @@ func (s *Server) createProxyHandler(name string, endpoint config.Endpoint) http.
 		}
 
 		// Execute the upstream request
-		resp, err := s.httpClient.Do(upstreamReq)
+		resp, err := s.client.Do(upstreamReq)
 		if err != nil {
 			s.handleRequestError(err, name, endpointURL, w)
 			return
@@ -403,28 +418,48 @@ func (s *Server) createUpstreamRequest(ctx context.Context, r *http.Request, end
 		return nil, fmt.Errorf("endpoint is not an HTTP endpoint")
 	}
 
-	// Apply size limit to request body
-	var bodyReader io.Reader = r.Body
+	// Buffer the request body to support HTTP/2 retries
+	// This allows the body to be replayed if the HTTP client needs to retry
+	var bodyBuffer bytes.Buffer
+	var err error
+
+	// Read the body with size limit if specified
 	if maxSize > 0 {
-		bodyReader = io.LimitReader(r.Body, maxSize)
+		_, err = io.CopyN(&bodyBuffer, r.Body, maxSize)
+		if err != nil && err != io.EOF {
+			return nil, fmt.Errorf("failed to read request body within size limit: %w", err)
+		}
+	} else {
+		_, err = io.Copy(&bodyBuffer, r.Body)
+		if err != nil && err != io.EOF {
+			return nil, fmt.Errorf("failed to read request body: %w", err)
+		}
 	}
 
-	// Preserve Content-Length if present
-	contentLength := r.ContentLength
-	if maxSize > 0 && contentLength > maxSize {
-		contentLength = maxSize
+	// Create a function that returns a new reader from the buffered body
+	// This implements Request.GetBody which is required for HTTP/2 retries
+	getBodyFunc := func() (io.ReadCloser, error) {
+		// Return a new reader from the buffered data
+		// bytes.NewReader implements io.ReadSeeker, so we can always seek back to start
+		return io.NopCloser(bytes.NewReader(bodyBuffer.Bytes())), nil
 	}
 
-	// Create request with context and streaming body
+	// Create request with context and buffered body
+	bodyReader := bytes.NewReader(bodyBuffer.Bytes())
 	upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, httpEndpoint.Url, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create upstream request: %w", err)
 	}
 
-	// Set Content-Length if we have it
-	if contentLength >= 0 {
-		upstreamReq.ContentLength = contentLength
+	// Set GetBody to support HTTP/2 retries
+	upstreamReq.GetBody = getBodyFunc
+
+	// Preserve Content-Length from the buffered body
+	contentLength := int64(bodyBuffer.Len())
+	if maxSize > 0 && contentLength > maxSize {
+		contentLength = maxSize
 	}
+	upstreamReq.ContentLength = contentLength
 
 	// Copy filtered headers from the incoming request
 	// Important: We must filter BEFORE setting on the request to avoid adding hop-by-hop headers

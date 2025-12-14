@@ -74,10 +74,7 @@ func NewHTTPEndpoint(name string, cfg config.Endpoint, secrets map[string]string
 func (e *HTTPEndpoint) HandleRequest(ctx context.Context, r *http.Request) (*Response, error) {
 	// Only accept POST requests
 	if r.Method != http.MethodPost {
-		return &Response{
-			StatusCode: http.StatusMethodNotAllowed,
-			Body:       []byte("Method not allowed"),
-		}, nil
+		return NewErrorResponse(http.StatusMethodNotAllowed, "Only POST method is allowed"), nil
 	}
 
 	// Create context with timeout
@@ -145,18 +142,13 @@ func (e *HTTPEndpoint) checkRequestSize(r *http.Request) error {
 
 // handleSizeError creates an error response for size limit violations
 func (e *HTTPEndpoint) handleSizeError(err error) *Response {
-	if _, ok := err.(*proxy.RequestTooLargeError); ok {
+	if reqErr, ok := err.(*proxy.RequestTooLargeError); ok {
 		logging.Printf("Request too large for endpoint '%s': %v", e.name, err)
-		return &Response{
-			StatusCode: http.StatusRequestEntityTooLarge,
-			Body:       []byte("Payload too large"),
-		}
+		return NewErrorResponse(http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("Request body size %d exceeds maximum allowed size %d", reqErr.Size, reqErr.MaxSize))
 	}
 
-	return &Response{
-		StatusCode: http.StatusInternalServerError,
-		Body:       []byte("Internal server error"),
-	}
+	return NewErrorResponse(http.StatusInternalServerError, "Internal server error")
 }
 
 // createUpstreamRequest creates a new HTTP request to forward to the upstream URL

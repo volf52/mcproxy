@@ -64,10 +64,18 @@ func NewStdioEndpoint(name string, cfg config.Endpoint, secrets map[string]strin
 		maxBodySize = *stdioEndpoint.MaxBodySize
 	}
 
-	// Parse command - assume it's a single string that needs to be split or already a slice
+	// Build command: executable from Command field, arguments from Args field
 	var command []string
-	if len(stdioEndpoint.Command) > 0 {
-		command = []string{stdioEndpoint.Command}
+	if stdioEndpoint.Command == "" {
+		return nil, fmt.Errorf("command is required for stdio endpoint '%s'", name)
+	}
+
+	// Command is the executable path
+	command = []string{stdioEndpoint.Command}
+
+	// Append any additional arguments from Args field
+	if len(stdioEndpoint.Args) > 0 {
+		command = append(command, stdioEndpoint.Args...)
 	}
 
 	// Create process manager
@@ -122,19 +130,13 @@ func (e *StdioEndpoint) Initialize() error {
 func (e *StdioEndpoint) HandleRequest(ctx context.Context, r *http.Request) (*Response, error) {
 	// Only accept POST requests
 	if r.Method != http.MethodPost {
-		return &Response{
-			StatusCode: http.StatusMethodNotAllowed,
-			Body:       []byte("Method not allowed"),
-		}, nil
+		return NewErrorResponse(http.StatusMethodNotAllowed, "Only POST method is allowed"), nil
 	}
 
 	// Initialize if not already done
 	if !e.processManager.IsRunning() {
 		if err := e.Initialize(); err != nil {
-			return &Response{
-				StatusCode: http.StatusServiceUnavailable,
-				Body:       []byte("MCP service unavailable"),
-			}, nil
+			return NewErrorResponse(http.StatusServiceUnavailable, "MCP service unavailable", http.StatusInternalServerError), nil
 		}
 	}
 
@@ -154,28 +156,19 @@ func (e *StdioEndpoint) HandleRequest(ctx context.Context, r *http.Request) (*Re
 	// Map HTTP request to MCP method and parameters
 	method, params, err := e.mapper.MapRequest(r.Method, r.URL.Path, e.getCombinedHeaders(r), body)
 	if err != nil {
-		return &Response{
-			StatusCode: http.StatusBadRequest,
-			Body:       []byte(fmt.Sprintf("Failed to map request to MCP call: %v", err)),
-		}, nil
+		return NewErrorResponse(http.StatusBadRequest, fmt.Sprintf("Failed to map request to MCP call: %v", err)), nil
 	}
 
 	// Execute MCP call
 	result, err := e.bridge.HandleRequest(method, params)
 	if err != nil {
-		return &Response{
-			StatusCode: http.StatusInternalServerError,
-			Body:       []byte(fmt.Sprintf("MCP call failed: %v", err)),
-		}, nil
+		return NewErrorResponse(http.StatusInternalServerError, fmt.Sprintf("MCP call failed: %v", err)), nil
 	}
 
 	// Marshal response
 	responseBody, err := json.Marshal(result)
 	if err != nil {
-		return &Response{
-			StatusCode: http.StatusInternalServerError,
-			Body:       []byte("Failed to marshal MCP response"),
-		}, nil
+		return NewErrorResponse(http.StatusInternalServerError, "Failed to marshal MCP response"), nil
 	}
 
 	// Set response headers
@@ -195,6 +188,11 @@ func (e *StdioEndpoint) Close() error {
 		e.bridge.Close()
 	}
 	return e.processManager.Stop()
+}
+
+// GetPID returns the PID of the managed process, or 0 if no process is running
+func (e *StdioEndpoint) GetPID() int {
+	return e.processManager.GetPID()
 }
 
 // readRequestBody reads the request body with size limit
@@ -222,18 +220,13 @@ func (e *StdioEndpoint) readRequestBody(r *http.Request) ([]byte, error) {
 
 // handleSizeError creates an error response for size limit violations
 func (e *StdioEndpoint) handleSizeError(err error) *Response {
-	if _, ok := err.(*proxy.RequestTooLargeError); ok {
+	if reqErr, ok := err.(*proxy.RequestTooLargeError); ok {
 		logging.Printf("Request too large for endpoint '%s': %v", e.name, err)
-		return &Response{
-			StatusCode: http.StatusRequestEntityTooLarge,
-			Body:       []byte("Payload too large"),
-		}
+		return NewErrorResponse(http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("Request body size %d exceeds maximum allowed size %d", reqErr.Size, reqErr.MaxSize))
 	}
 
-	return &Response{
-		StatusCode: http.StatusInternalServerError,
-		Body:       []byte("Internal server error"),
-	}
+	return NewErrorResponse(http.StatusInternalServerError, "Internal server error")
 }
 
 // getCombinedHeaders combines incoming headers with configured headers

@@ -18,7 +18,7 @@ func TestValidateEndpointsComprehensive(t *testing.T) {
 				"api": {
 					Value: HttpEndpoint{
 						Type: EndpointTypeHTTP,
-						Url: "https://api.example.com/webhook",
+						Url:  "https://api.example.com/webhook",
 						Headers: map[string]string{
 							"Authorization": "Bearer token123",
 							"Content-Type":  "application/json",
@@ -28,7 +28,7 @@ func TestValidateEndpointsComprehensive(t *testing.T) {
 				"webhook": {
 					Value: HttpEndpoint{
 						Type: EndpointTypeHTTP,
-						Url: "http://localhost:3000/webhook",
+						Url:  "http://localhost:3000/webhook",
 						Headers: map[string]string{
 							"X-API-Key": "secret123",
 						},
@@ -49,7 +49,7 @@ func TestValidateEndpointsComprehensive(t *testing.T) {
 				"": {
 					Value: HttpEndpoint{
 						Type: EndpointTypeHTTP,
-						Url: "https://api.example.com",
+						Url:  "https://api.example.com",
 					},
 				},
 			},
@@ -62,7 +62,7 @@ func TestValidateEndpointsComprehensive(t *testing.T) {
 				"api": {
 					Value: HttpEndpoint{
 						Type: EndpointTypeHTTP,
-						Url: "api.example.com",
+						Url:  "api.example.com",
 					},
 				},
 			},
@@ -75,7 +75,7 @@ func TestValidateEndpointsComprehensive(t *testing.T) {
 				"ftp": {
 					Value: HttpEndpoint{
 						Type: EndpointTypeHTTP,
-						Url: "ftp://example.com",
+						Url:  "ftp://example.com",
 					},
 				},
 			},
@@ -88,7 +88,7 @@ func TestValidateEndpointsComprehensive(t *testing.T) {
 				"api": {
 					Value: HttpEndpoint{
 						Type: EndpointTypeHTTP,
-						Url: "https://",
+						Url:  "https://",
 					},
 				},
 			},
@@ -101,7 +101,7 @@ func TestValidateEndpointsComprehensive(t *testing.T) {
 				"api": {
 					Value: HttpEndpoint{
 						Type: EndpointTypeHTTP,
-						Url: "https://api.example.com#fragment",
+						Url:  "https://api.example.com#fragment",
 					},
 				},
 			},
@@ -114,7 +114,7 @@ func TestValidateEndpointsComprehensive(t *testing.T) {
 				"api": {
 					Value: HttpEndpoint{
 						Type: EndpointTypeHTTP,
-						Url: "not-a-url",
+						Url:  "not-a-url",
 					},
 				},
 			},
@@ -127,7 +127,7 @@ func TestValidateEndpointsComprehensive(t *testing.T) {
 				"api": {
 					Value: HttpEndpoint{
 						Type: EndpointTypeHTTP,
-						Url: "https://api.example.com",
+						Url:  "https://api.example.com",
 						Headers: map[string]string{
 							"": "value",
 						},
@@ -143,7 +143,7 @@ func TestValidateEndpointsComprehensive(t *testing.T) {
 				"api": {
 					Value: HttpEndpoint{
 						Type: EndpointTypeHTTP,
-						Url: "https://api.example.com",
+						Url:  "https://api.example.com",
 						Headers: map[string]string{
 							"Bad:Header": "value",
 						},
@@ -159,7 +159,7 @@ func TestValidateEndpointsComprehensive(t *testing.T) {
 				"api": {
 					Value: HttpEndpoint{
 						Type: EndpointTypeHTTP,
-						Url: "https://api.example.com",
+						Url:  "https://api.example.com",
 						Headers: map[string]string{
 							"Bad\x00Header": "value",
 						},
@@ -175,7 +175,7 @@ func TestValidateEndpointsComprehensive(t *testing.T) {
 				"api": {
 					Value: HttpEndpoint{
 						Type: EndpointTypeHTTP,
-						Url: "https://api.example.com",
+						Url:  "https://api.example.com",
 						Headers: map[string]string{
 							"Header": "value\nwith\nbreaks",
 						},
@@ -286,7 +286,7 @@ func TestValidateEndpointsComprehensive(t *testing.T) {
 				"": {
 					Value: HttpEndpoint{
 						Type: EndpointTypeHTTP,
-						Url: "ftp://example.com",
+						Url:  "ftp://example.com",
 						Headers: map[string]string{
 							"":        "value",
 							"Bad:Key": "value",

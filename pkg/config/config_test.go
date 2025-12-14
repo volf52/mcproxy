@@ -33,7 +33,7 @@ func TestLoadConfig(t *testing.T) {
 		"endpoints": map[string]interface{}{
 			"test": map[string]interface{}{
 				"type": "http",
-				"url": "https://example.com",
+				"url":  "https://example.com",
 				"headers": map[string]interface{}{
 					"Authorization": "Bearer {{token}}",
 				},
@@ -519,7 +519,7 @@ func TestBackwardCompatibility_HTTPOnly(t *testing.T) {
 			"legacy-http": {
 				Value: HttpEndpoint{
 					Type: EndpointTypeHTTP, // Need to explicitly set type in discriminated union
-					Url: "https://api.example.com",
+					Url:  "https://api.example.com",
 					Headers: map[string]string{
 						"Authorization": "Bearer {{api_token}}",
 						"Content-Type":  "application/json",
@@ -592,15 +592,15 @@ func TestBackwardCompatibility_ConfigLoading(t *testing.T) {
 		"endpoints": map[string]interface{}{
 			"api": map[string]interface{}{
 				"type": "http",
-				"url": "https://api.example.com",
+				"url":  "https://api.example.com",
 				"headers": map[string]interface{}{
 					"Authorization": "Bearer {{api_token}}",
 					"Content-Type":  "application/json",
 				},
 			},
 			"webhook": map[string]interface{}{
-				"type": "http",
-				"url": "https://webhook.example.com",
+				"type":    "http",
+				"url":     "https://webhook.example.com",
 				"timeout": 30,
 			},
 		},
@@ -693,7 +693,7 @@ func TestBackwardCompatibility_MixedConfig(t *testing.T) {
 			"legacy": {
 				Value: HttpEndpoint{
 					Type: EndpointTypeHTTP, // Must be explicit in discriminated union
-					Url: "https://legacy.example.com",
+					Url:  "https://legacy.example.com",
 				},
 			},
 			"modern-http": {
@@ -1073,7 +1073,7 @@ func TestLoadConfigFromFile(t *testing.T) {
 		"endpoints": map[string]interface{}{
 			"test": map[string]interface{}{
 				"type": "http",
-				"url": "https://example.com",
+				"url":  "https://example.com",
 			},
 		},
 	}
@@ -1259,7 +1259,7 @@ func TestLoadConfigHierarchical(t *testing.T) {
 		"endpoints": map[string]interface{}{
 			"global": map[string]interface{}{
 				"type": "http",
-				"url": "https://global.com",
+				"url":  "https://global.com",
 			},
 		},
 	}
@@ -1281,7 +1281,7 @@ func TestLoadConfigHierarchical(t *testing.T) {
 		"endpoints": map[string]interface{}{
 			"project": map[string]interface{}{
 				"type": "http",
-				"url": "https://project.com",
+				"url":  "https://project.com",
 			},
 		},
 	}
@@ -1476,7 +1476,7 @@ func TestLoadConfigWithDefaults(t *testing.T) {
 		"endpoints": map[string]interface{}{
 			"test": map[string]interface{}{
 				"type": "http",
-				"url": "https://example.com",
+				"url":  "https://example.com",
 			},
 		},
 	}

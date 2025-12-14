@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -22,6 +23,45 @@ const (
 type EndpointShared struct {
 	MaxBodySize *int64         `json:"maxBodySize,omitempty" description:"Maximum request body size in bytes (overrides global limit)."`
 	Timeout     *time.Duration `json:"timeout,omitempty" description:"Per-endpoint timeout in seconds (overrides global timeout)."`
+}
+
+func (e *EndpointShared) UnmarshalJSON(data []byte) error {
+	type Alias EndpointShared
+	aux := &struct {
+		Timeout interface{} `json:"timeout,omitempty"`
+		*Alias
+	}{
+		Alias: (*Alias)(e),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Handle timeout parsing
+	if aux.Timeout != nil {
+		switch v := aux.Timeout.(type) {
+		case string:
+			// Parse duration string like "30s"
+			duration, err := time.ParseDuration(v)
+			if err != nil {
+				return fmt.Errorf("invalid timeout duration: %v", err)
+			}
+			e.Timeout = &duration
+		case float64:
+			// Handle numeric value (interpreted as seconds)
+			duration := time.Duration(v * float64(time.Second))
+			e.Timeout = &duration
+		case int64:
+			// Handle integer value (interpreted as seconds)
+			duration := time.Duration(v * int64(time.Second))
+			e.Timeout = &duration
+		default:
+			return fmt.Errorf("unsupported timeout type: %T", aux.Timeout)
+		}
+	}
+
+	return nil
 }
 
 type HttpEndpoint struct {
@@ -52,7 +92,8 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 		Type EndpointType `json:"type"`
 	}
 
-	if err := UnmarshalWithAutoDetection(data, &discriminator, ""); err != nil {
+	// First, unmarshal the discriminator to determine the type
+	if err := json.Unmarshal(data, &discriminator); err != nil {
 		return err
 	}
 
@@ -61,17 +102,95 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 		discriminator.Type = EndpointTypeHTTP
 	}
 
+	// Use a temporary struct to unmarshal the data
+	var temp struct {
+		Type        EndpointType      `json:"type"`
+		Url         string            `json:"url,omitempty"`
+		Headers     map[string]string `json:"headers,omitempty"`
+		Command     string            `json:"command,omitempty"`
+		Args        []string          `json:"args,omitempty"`
+		Env         map[string]string `json:"env,omitempty"`
+		Timeout     interface{}       `json:"timeout,omitempty"`
+		MaxBodySize interface{}       `json:"maxBodySize,omitempty"`
+	}
+
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return err
+	}
+
+	// Create the appropriate endpoint type
 	switch discriminator.Type {
 	case EndpointTypeHTTP:
 		var httpEndpoint HttpEndpoint
-		if err := UnmarshalWithAutoDetection(data, &httpEndpoint, ""); err != nil {
-			return err
+		httpEndpoint.Type = temp.Type
+		httpEndpoint.Url = temp.Url
+		httpEndpoint.Headers = temp.Headers
+		// Handle shared fields
+		if temp.Timeout != nil {
+			switch v := temp.Timeout.(type) {
+			case string:
+				duration, err := time.ParseDuration(v)
+				if err != nil {
+					return fmt.Errorf("invalid timeout duration: %v", err)
+				}
+				httpEndpoint.Timeout = &duration
+			case float64:
+				duration := time.Duration(v * float64(time.Second))
+				httpEndpoint.Timeout = &duration
+			case int64:
+				duration := time.Duration(v * int64(time.Second))
+				httpEndpoint.Timeout = &duration
+			default:
+				return fmt.Errorf("unsupported timeout type: %T", temp.Timeout)
+			}
+		}
+		if temp.MaxBodySize != nil {
+			switch v := temp.MaxBodySize.(type) {
+			case float64:
+				maxBodySizeInt := int64(v)
+				httpEndpoint.MaxBodySize = &maxBodySizeInt
+			case int64:
+				httpEndpoint.MaxBodySize = &v
+			default:
+				return fmt.Errorf("unsupported maxBodySize type: %T", temp.MaxBodySize)
+			}
 		}
 		e.Value = httpEndpoint
 	case EndpointTypeStdio:
 		var stdioEndpoint StdioEndpoint
-		if err := UnmarshalWithAutoDetection(data, &stdioEndpoint, ""); err != nil {
-			return err
+		stdioEndpoint.Type = temp.Type
+		stdioEndpoint.Command = temp.Command
+		stdioEndpoint.Args = temp.Args
+		stdioEndpoint.Env = temp.Env
+		// Handle shared fields
+		if temp.Timeout != nil {
+			switch v := temp.Timeout.(type) {
+			case string:
+				duration, err := time.ParseDuration(v)
+				if err != nil {
+					return fmt.Errorf("invalid timeout duration: %v", err)
+				}
+				stdioEndpoint.Timeout = &duration
+			case float64:
+				duration := time.Duration(v * float64(time.Second))
+				stdioEndpoint.Timeout = &duration
+			case int64:
+				duration := time.Duration(v * int64(time.Second))
+				stdioEndpoint.Timeout = &duration
+			default:
+				return fmt.Errorf("unsupported timeout type: %T", temp.Timeout)
+			}
+		}
+		if temp.MaxBodySize != nil {
+			switch v := temp.MaxBodySize.(type) {
+			case float64:
+				maxBodySizeInt := int64(v)
+				stdioEndpoint.MaxBodySize = &maxBodySizeInt
+			case int64:
+				stdioEndpoint.MaxBodySize = &v
+			default:
+				return fmt.Errorf("unsupported maxBodySize type: %T", temp.MaxBodySize)
+			}
 		}
 		e.Value = stdioEndpoint
 	default:

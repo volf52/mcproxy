@@ -1,66 +1,96 @@
 {
   "$id": "https://mcproxy.dev/schemas/config.json",
-  "title": "MCProxy Configuration Schema",
-  "description": "Configuration schema for mcproxy HTTP proxy service",
+  "title": "MCProxy Config",
+  "description": "Config for MCProxy",
+  "additionalProperties": false,
   "definitions": {
     "ConfigEndpoint": {
-      "title": "MCProxy Config",
-      "description": "Config for MCProxy",
-      "additionalProperties": false,
-      "properties": {
-        "args": {
-          "description": "Arguments to pass to the MCP stdio endpoint during initialization",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "command": {
-          "description": "Command and arguments to execute for stdio endpoints",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "env": {
-          "description": "Environment variables to set for the stdio process",
-          "additionalProperties": {
-            "type": "string"
+      "oneOf": [
+        {
+          "properties": {
+            "headers": {
+              "description": "Custom headers to add to requests to the upstream server.",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "maxBodySize": {
+              "description": "Maximum request body size in bytes (overrides global limit).",
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "timeout": {
+              "description": "Per-endpoint timeout in seconds (overrides global timeout).",
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "type": {
+              "description": "Endpoint type: 'http' for HTTP upstream or 'stdio' for MCP stdio process (default: 'http')",
+              "enum": [
+                "http"
+              ],
+              "type": "string"
+            },
+            "url": {
+              "description": "The upstream server url",
+              "type": "string"
+            }
           },
           "type": "object"
         },
-        "headers": {
-          "description": "Custom headers to add to requests to the upstream server.",
-          "additionalProperties": {
-            "type": "string"
+        {
+          "properties": {
+            "args": {
+              "description": "Arguments to pass to the MCP stdio endpoint during initialization",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "command": {
+              "description": "Command to execute for stdio endpoints",
+              "type": "string"
+            },
+            "env": {
+              "description": "Environment variables to set for the stdio process",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "maxBodySize": {
+              "description": "Maximum request body size in bytes (overrides global limit).",
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "timeout": {
+              "description": "Per-endpoint timeout in seconds (overrides global timeout).",
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "type": {
+              "description": "Endpoint type: 'http' for HTTP upstream or 'stdio' for MCP stdio process (default: 'http')",
+              "enum": [
+                "stdio"
+              ],
+              "type": "string"
+            }
           },
           "type": "object"
-        },
-        "maxBodySize": {
-          "description": "Maximum request body size in bytes (overrides global limit).",
-          "type": [
-            "null",
-            "integer"
-          ]
-        },
-        "timeout": {
-          "description": "Per-endpoint timeout in seconds (overrides global timeout).",
-          "type": [
-            "null",
-            "integer"
-          ]
-        },
-        "type": {
-          "description": "Endpoint type: 'http' for HTTP upstream or 'stdio' for MCP stdio process (default: 'http')",
-          "enum": ["http", "stdio"],
-          "type": "string"
-        },
-        "url": {
-          "description": "The upstream server url (required for http type)",
-          "type": "string"
         }
-      },
-      "type": "object"
+      ]
     },
     "ConfigServerConfig": {
       "properties": {
@@ -98,10 +128,7 @@
       "type": "integer"
     },
     "globalTimeout": {
-      "type": [
-        "null",
-        "integer"
-      ]
+      "type": "integer"
     },
     "logFile": {
       "type": "string"

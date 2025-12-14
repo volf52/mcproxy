@@ -2,6 +2,7 @@ package endpoints
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -15,6 +16,41 @@ type Response struct {
 	Body       []byte
 }
 
+// ErrorResponse represents a structured error response
+type ErrorResponse struct {
+	Error   string `json:"error"`
+	Message string `json:"message,omitempty"`
+	Code    int    `json:"code,omitempty"`
+}
+
+// NewErrorResponse creates a JSON error response with appropriate status code
+func NewErrorResponse(statusCode int, message string, code ...int) *Response {
+	errorResp := ErrorResponse{
+		Error:   http.StatusText(statusCode),
+		Message: message,
+	}
+
+	if len(code) > 0 {
+		errorResp.Code = code[0]
+	}
+
+	body, err := json.Marshal(errorResp)
+	if err != nil {
+		// Fallback to plain text if JSON marshaling fails
+		return &Response{
+			StatusCode: statusCode,
+			Header:     http.Header{"Content-Type": []string{"text/plain; charset=utf-8"}},
+			Body:       []byte(message),
+		}
+	}
+
+	return &Response{
+		StatusCode: statusCode,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       body,
+	}
+}
+
 // Endpoint represents a proxy endpoint that can handle HTTP requests
 type Endpoint interface {
 	// HandleRequest handles an HTTP request and returns a response
@@ -22,6 +58,12 @@ type Endpoint interface {
 
 	// Close gracefully closes the endpoint and releases resources
 	Close() error
+}
+
+// EndpointWithPID is an optional interface for endpoints that have a process PID
+type EndpointWithPID interface {
+	Endpoint
+	GetPID() int
 }
 
 // Factory creates an endpoint based on configuration

@@ -200,6 +200,54 @@ func isValidHeaderValue(value string) error {
 	return nil
 }
 
+// isValidEnvVarName checks if an environment variable name is valid
+func isValidEnvVarName(name string) error {
+	if name == "" {
+		return fmt.Errorf("environment variable name cannot be empty")
+	}
+
+	// Environment variable names should not contain control characters, spaces, or tabs
+	for _, r := range name {
+		if r < 33 || r > 126 {
+			return fmt.Errorf("environment variable key contains invalid characters")
+		}
+		if r == ':' || r == '=' {
+			return fmt.Errorf("environment variable key contains invalid characters")
+		}
+	}
+
+	// Check for invalid characters in environment variable names
+	// According to POSIX, environment variable names should only contain letters, digits, and underscores
+	// and should not start with a digit
+	if !isValidEnvVarNamePattern(name) {
+		return fmt.Errorf("environment variable key contains invalid characters")
+	}
+
+	return nil
+}
+
+// isValidEnvVarNamePattern checks if an environment variable name follows POSIX rules
+func isValidEnvVarNamePattern(name string) bool {
+	if len(name) == 0 {
+		return false
+	}
+
+	// Check first character
+	first := name[0]
+	if !(first >= 'a' && first <= 'z' || first >= 'A' && first <= 'Z' || first == '_') {
+		return false
+	}
+
+	// Check remaining characters
+	for _, r := range name[1:] {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_') {
+			return false
+		}
+	}
+
+	return true
+}
+
 // validateCommand checks if a command string is valid for execution
 func validateCommand(command string) error {
 	// First check for invalid characters in the raw command string
@@ -312,8 +360,8 @@ func validateEndpoints(endpoints map[string]Endpoint) error {
 				if key == "" {
 					errors.add(fmt.Sprintf("endpoint[%s].env", name), "environment variable key cannot be empty")
 				}
-				if strings.ContainsAny(key, "\x00\r\n") {
-					errors.add(fmt.Sprintf("endpoint[%s].env[%s]", name, key), "environment variable key contains invalid characters")
+				if err := isValidEnvVarName(key); err != nil {
+					errors.add(fmt.Sprintf("endpoint[%s].env[%s]", name, key), err.Error())
 				}
 				if strings.ContainsAny(value, "\x00\r\n") {
 					errors.add(fmt.Sprintf("endpoint[%s].env[%s]", name, key), "environment variable value contains invalid characters")

@@ -2,11 +2,13 @@ package endpoints
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -14,6 +16,7 @@ import (
 
 	"mcproxy/pkg/config"
 	"mcproxy/pkg/logging"
+	"mcproxy/pkg/version"
 )
 
 // Server represents the proxy server using the endpoint abstraction
@@ -59,26 +62,45 @@ func NewServer(port string, endpoints map[string]config.Endpoint, secrets config
 	// Create endpoint factory
 	factory := NewDefaultFactory()
 
-	// Create endpoints
+	// Create endpoints and track successful initializations
 	endpointMap := make(map[string]Endpoint)
+	initErrors := make(map[string]error)
+
 	for name, cfg := range endpoints {
 		endpoint, err := factory.CreateEndpoint(name, cfg, secrets)
 		if err != nil {
-			// Close any already created endpoints
-			for _, ep := range endpointMap {
-				ep.Close()
-			}
-			shutdownCancel()
-			return nil, fmt.Errorf("failed to create endpoint '%s': %w", name, err)
+			initErrors[name] = fmt.Errorf("failed to create endpoint '%s': %w", name, err)
+			continue
 		}
-		endpointMap[name] = endpoint
 
 		// Initialize stdio endpoints
 		if stdioEp, ok := endpoint.(*StdioEndpoint); ok {
 			if err := stdioEp.Initialize(); err != nil {
-				logging.Printf("Warning: Failed to initialize stdio endpoint '%s': %v", name, err)
+				initErrors[name] = fmt.Errorf("failed to initialize stdio endpoint '%s': %w", name, err)
+				endpoint.Close() // Clean up resources
+				continue
 			}
 		}
+
+		endpointMap[name] = endpoint
+	}
+
+	// Require at least one successful endpoint
+	if len(endpointMap) == 0 {
+		// Cancel context first
+		shutdownCancel()
+
+		var errorMsg strings.Builder
+		errorMsg.WriteString("no endpoints could be initialized:\n")
+		for name, err := range initErrors {
+			errorMsg.WriteString(fmt.Sprintf("  - %s: %v\n", name, err))
+		}
+		return nil, fmt.Errorf("%s", errorMsg.String())
+	}
+
+	// Log any initialization failures
+	for _, err := range initErrors {
+		logging.Printf("Warning: %v", err)
 	}
 
 	return &Server{
@@ -120,11 +142,22 @@ func (s *Server) StartWithShutdown() error {
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
-	// Register handlers for each endpoint
+	// Register all handlers
+	s.registerHandlers(mux)
+
+	logging.Printf("Starting mcproxy server on port %s", s.port)
+	return http.ListenAndServe(s.port, mux)
+}
+
+// registerHandlers registers all HTTP handlers on the provided mux
+func (s *Server) registerHandlers(mux *http.ServeMux) {
+	// Register handlers for each endpoint (with and without trailing slash)
 	for name := range s.endpointMap {
 		handler := s.createProxyHandler(name)
-		pattern := fmt.Sprintf("/mcp/%s", name)
-		mux.HandleFunc(pattern, handler)
+		pattern1 := fmt.Sprintf("/mcp/%s", name)
+		pattern2 := fmt.Sprintf("/mcp/%s/", name)
+		mux.HandleFunc(pattern1, handler)
+		mux.HandleFunc(pattern2, handler)
 		logging.Printf("Registered endpoint handler: /mcp/%s", name)
 	}
 
@@ -135,12 +168,71 @@ func (s *Server) Start() error {
 			return
 		}
 
+		// Collect endpoint types
+		endpointTypes := make(map[string]int)
+		for _, endpoint := range s.endpointMap {
+			switch endpoint.(type) {
+			case *HTTPEndpoint:
+				endpointTypes["http"]++
+			case *StdioEndpoint:
+				endpointTypes["stdio"]++
+			}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"service": "mcproxy", "status": "running"}`)
+		response := fmt.Sprintf(`{
+        "service": "mcproxy",
+        "version": "%s",
+        "status": "running",
+        "endpoints": {
+            "total": %d,
+            "types": %v
+        }
+    }`, version.Version, len(s.endpointMap), endpointTypes)
+
+		io.WriteString(w, response)
 	})
 
-	logging.Printf("Starting mcproxy server on port %s", s.port)
-	return http.ListenAndServe(s.port, mux)
+	// Add health endpoint
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		type EndpointStatus struct {
+			Type   string `json:"type"`
+			Status string `json:"status"`
+			Error  string `json:"error,omitempty"`
+		}
+
+		endpoints := make(map[string]EndpointStatus)
+		for name, endpoint := range s.endpointMap {
+			status := EndpointStatus{}
+
+			switch ep := endpoint.(type) {
+			case *HTTPEndpoint:
+				status.Type = "http"
+				status.Status = "healthy" // HTTP endpoints don't have persistent state
+			case *StdioEndpoint:
+				status.Type = "stdio"
+				if ep.processManager != nil && ep.processManager.IsRunning() {
+					status.Status = "healthy"
+				} else {
+					status.Status = "unhealthy"
+					status.Error = "Process not running"
+				}
+			}
+
+			endpoints[name] = status
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":    "healthy",
+			"endpoints": endpoints,
+		})
+	})
 }
 
 // listenAndServe creates and starts the HTTP server with configured timeouts
@@ -164,27 +256,11 @@ func (s *Server) listenAndServe() error {
 		})
 	}
 
+	// Register all handlers
+	s.registerHandlers(mux)
+
 	// Apply middleware to all handlers
 	handler := shutdownMiddleware(mux)
-
-	// Register endpoint handlers
-	for name := range s.endpointMap {
-		handlerFunc := s.createProxyHandler(name)
-		pattern := fmt.Sprintf("/mcp/%s", name)
-		mux.HandleFunc(pattern, handlerFunc)
-		logging.Printf("Registered endpoint handler: /mcp/%s", name)
-	}
-
-	// Add root handler
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"service": "mcproxy", "status": "running"}`)
-	})
 
 	// Create server with timeouts
 	s.serverMu.Lock()

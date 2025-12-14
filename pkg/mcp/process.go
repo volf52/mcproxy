@@ -36,6 +36,7 @@ type ProcessManager struct {
 	stderr  io.Reader
 	cancel  context.CancelFunc
 	done    chan struct{}
+	doneMu  sync.Mutex
 
 	// Request/response handling
 	pendingRequests map[interface{}]chan *JSONRPCResponse
@@ -118,8 +119,14 @@ func (pm *ProcessManager) Stop() error {
 	// Clean up any pending requests
 	pm.cleanupPendingRequests(fmt.Errorf("process stopped"))
 
-	// Wait for process to finish
-	<-pm.done
+	// Wait for process to finish with proper synchronization
+	pm.doneMu.Lock()
+	doneChan := pm.done
+	pm.doneMu.Unlock()
+
+	if doneChan != nil {
+		<-doneChan
+	}
 
 	// Terminate process if still running
 	if pm.process != nil && pm.process.Pid > 0 {
@@ -137,7 +144,20 @@ func (pm *ProcessManager) IsRunning() bool {
 
 // run manages the process lifecycle
 func (pm *ProcessManager) run(ctx context.Context) {
-	defer close(pm.done)
+	pm.doneMu.Lock()
+	if pm.done == nil {
+		pm.done = make(chan struct{})
+	}
+	pm.doneMu.Unlock()
+
+	defer func() {
+		pm.doneMu.Lock()
+		if pm.done != nil {
+			close(pm.done)
+			pm.done = nil
+		}
+		pm.doneMu.Unlock()
+	}()
 
 	for {
 		if pm.restartCount >= MaxRestartAttempts {
@@ -260,6 +280,14 @@ func (pm *ProcessManager) startProcess(ctx context.Context) error {
 	return nil
 }
 
+// GetPID returns the PID of the managed process, or 0 if no process is running
+func (pm *ProcessManager) GetPID() int {
+	if pm.process != nil {
+		return pm.process.Pid
+	}
+	return 0
+}
+
 // logStderr logs stderr output from the process
 func (pm *ProcessManager) logStderr(stderr io.Reader) {
 	scanner := bufio.NewScanner(stderr)
@@ -372,9 +400,17 @@ func (pm *ProcessManager) SendRequest(ctx context.Context, method string, params
 	// Clean up pending request when done
 	defer func() {
 		pm.reqMu.Lock()
-		delete(pm.pendingRequests, id)
+		// Check if channel still exists in pending requests (might have been cleaned up)
+		if ch, exists := pm.pendingRequests[id]; exists {
+			delete(pm.pendingRequests, id)
+			// Close channel only if it's not already closed
+			select {
+			case <-ch:
+			default:
+				close(ch)
+			}
+		}
 		pm.reqMu.Unlock()
-		close(ch)
 	}()
 
 	// Send request
@@ -435,7 +471,13 @@ func (pm *ProcessManager) cleanupPendingRequests(err error) {
 		default:
 			// Channel is closed or full
 		}
-		close(ch)
+
+		// Close channel only if it's not already closed
+		select {
+		case <-ch:
+		default:
+			close(ch)
+		}
 	}
 
 	// Clear the map
