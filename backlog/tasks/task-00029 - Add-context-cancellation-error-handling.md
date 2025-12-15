@@ -19,6 +19,7 @@ priority: medium
 Add better error handling for "context canceled" errors that occur when requests are interrupted due to timeouts or client disconnections. Currently these errors are logged but not handled with appropriate detail.
 
 The fix should:
+
 1. Distinguish between client-initiated cancellations and timeout-induced cancellations
 2. Add more detailed logging to identify the source of cancellation
 3. Consider implementing exponential backoff retry for transient cancellations

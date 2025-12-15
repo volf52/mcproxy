@@ -19,6 +19,7 @@ priority: medium
 Update the HTTP client transport configuration in CreateHTTPClient to handle graceful shutdowns and retry scenarios more gracefully.
 
 The configuration should include:
+
 1. Setting appropriate retry policies for HTTP/2
 2. Configuring idle connection timeout to be more aggressive with flaky upstreams
 3. Adding connection pool health checks

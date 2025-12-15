@@ -19,6 +19,7 @@ priority: high
 Fix the HTTP/2 retry error "cannot retry err after Request.Body was written; define Request.GetBody" by implementing Request.GetBody in the createUpstreamRequest function. This error occurs when upstream servers (api.z.ai) perform graceful shutdowns and the HTTP/2 transport needs to retry the request but cannot because the body has already been consumed.
 
 The fix involves:
+
 1. Preserving the original request body
 2. Implementing Request.GetBody as a function that returns a new reader for the body
 3. Ensuring the body can be replayed for retries

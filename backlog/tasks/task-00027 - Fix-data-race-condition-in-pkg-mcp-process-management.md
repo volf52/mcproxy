@@ -17,7 +17,9 @@ A data race was detected in pkg/mcp/process.go between the run.func1() function 
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
+
 <!-- AC:BEGIN -->
+
 - [ ] #1 Add proper synchronization (mutex or atomic operations) to protect shared state in ProcessManager
 - [ ] #2 Ensure all concurrent access to shared fields is properly synchronized
 - [ ] #3 Run `go test -race ./...` to verify the fix resolves the race condition
