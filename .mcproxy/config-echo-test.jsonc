@@ -1,0 +1,19 @@
+{
+  "endpoints": {
+    "echo-test": {
+      "type": "stdio",
+      "command": "./simple-mcp-echo-server",
+      "env": {
+        "TEST": "value"
+      }
+    }
+  },
+  "globalTimeout": 60000000000,
+  "globalMaxBodySize": 10485760,
+  "server": {
+    "readTimeout": 30,
+    "writeTimeout": 30,
+    "idleTimeout": 120,
+    "shutdownTimeout": 30
+  }
+}

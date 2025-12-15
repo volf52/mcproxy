@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"mcproxy/pkg/config"
@@ -39,7 +40,7 @@ func NewStdioEndpoint(name string, cfg config.Endpoint, secrets map[string]strin
 	// Process secret templates in environment variables
 	processedEnv := make(map[string]string)
 	for envName, envValue := range stdioEndpoint.Env {
-		resolvedValue, missingVars, err := substituteTemplate(envValue, secrets)
+		resolvedValue, missingVars, err := config.SubstituteTemplate(envValue, secrets)
 		if err != nil {
 			logging.Printf("Error processing environment variable '%s' for endpoint '%s': %v", envName, name, err)
 			// Use original value if template processing fails
@@ -64,17 +65,44 @@ func NewStdioEndpoint(name string, cfg config.Endpoint, secrets map[string]strin
 		maxBodySize = *stdioEndpoint.MaxBodySize
 	}
 
-	// Build command: executable from Command field, arguments from Args field
+	// Build command: use secure parsing for the Command field, then append Args
 	var command []string
 	if stdioEndpoint.Command == "" {
 		return nil, fmt.Errorf("command is required for stdio endpoint '%s'", name)
 	}
 
-	// Command is the executable path
-	command = []string{stdioEndpoint.Command}
+	// Use the secure command validator to parse the command
+	validator := config.NewSecureCommandValidator()
+
+	// Allow common executable paths
+	allowedPaths := []string{
+		"/usr/bin",
+		"/usr/local/bin",
+		"/bin",
+		"/sbin",
+		"/usr/sbin",
+		"/opt",
+		"/usr/local/opt",
+	}
+	validator.WithAllowedPaths(allowedPaths)
+
+	// Parse the command securely
+	parsedCommand, err := validator.ValidateAndParseCommand(stdioEndpoint.Command)
+	if err != nil {
+		return nil, fmt.Errorf("invalid command for stdio endpoint '%s': %w", name, err)
+	}
+
+	// Start with the parsed command
+	command = parsedCommand
 
 	// Append any additional arguments from Args field
 	if len(stdioEndpoint.Args) > 0 {
+		// Validate each argument
+		for _, arg := range stdioEndpoint.Args {
+			if strings.Contains(arg, "\x00") {
+				return nil, fmt.Errorf("argument contains null byte in endpoint '%s'", name)
+			}
+		}
 		command = append(command, stdioEndpoint.Args...)
 	}
 

@@ -33,6 +33,14 @@ type JSONRPCError struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
+// Error implements the error interface
+func (e *JSONRPCError) Error() string {
+	if e.Data != nil {
+		return fmt.Sprintf("JSON-RPC error %d: %s (data: %s)", e.Code, e.Message, string(e.Data))
+	}
+	return fmt.Sprintf("JSON-RPC error %d: %s", e.Code, e.Message)
+}
+
 // JSONRPCNotification represents a JSON-RPC 2.0 notification (no ID)
 type JSONRPCNotification struct {
 	JSONRPC JSONRPCVersion  `json:"jsonrpc"`

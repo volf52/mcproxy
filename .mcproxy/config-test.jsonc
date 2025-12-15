@@ -1,0 +1,20 @@
+{
+  "endpoints": {
+    "test-stdio": {
+      "type": "stdio",
+      "command": "echo",
+      "args": ["arg1", "arg2"],
+      "env": {
+        "TEST_VAR": "test_value"
+      }
+    }
+  },
+  "globalTimeout": 60000000000,
+  "globalMaxBodySize": 10485760,
+  "server": {
+    "readTimeout": 30,
+    "writeTimeout": 30,
+    "idleTimeout": 120,
+    "shutdownTimeout": 30
+  }
+}

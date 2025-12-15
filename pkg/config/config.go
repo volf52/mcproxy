@@ -248,31 +248,27 @@ func isValidEnvVarNamePattern(name string) bool {
 	return true
 }
 
-// validateCommand checks if a command string is valid for execution
+// validateCommand checks if a command string is valid for execution using secure validation
 func validateCommand(command string) error {
-	// First check for invalid characters in the raw command string
-	for _, r := range command {
-		// Control characters (including newline, carriage return, and tab) are invalid
-		if r < 32 || r == 127 {
-			return fmt.Errorf("command component contains invalid characters")
-		}
-	}
+	// Use the secure command validator
+	validator := NewSecureCommandValidator()
 
-	// Check for empty components (command cannot have empty path segments)
-	components := strings.Fields(command)
-	if len(components) == 0 {
-		return fmt.Errorf("command component cannot be empty")
+	// Additional allowed paths can be configured via environment or config
+	// For now, we'll allow common safe directories
+	allowedPaths := []string{
+		"/usr/bin",
+		"/usr/local/bin",
+		"/bin",
+		"/sbin",
+		"/usr/sbin",
+		"/opt",
 	}
+	validator.WithAllowedPaths(allowedPaths)
 
-	// Additional checks on components
-	for i, component := range components {
-		if component == "" {
-			return fmt.Errorf("command component cannot be empty")
-		}
-		// First component (executable path) should not contain spaces
-		if i == 0 && strings.ContainsAny(component, " \t") {
-			return fmt.Errorf("command executable path cannot contain spaces")
-		}
+	// Validate and parse the command
+	_, err := validator.ValidateAndParseCommand(command)
+	if err != nil {
+		return fmt.Errorf("command validation failed: %w", err)
 	}
 
 	return nil
@@ -540,7 +536,7 @@ func processEndpointTemplating(endpoint Endpoint, secrets Secrets) (Endpoint, []
 
 		// Process headers for HTTP endpoints
 		for headerName, headerValue := range originalHeaders {
-			resolvedValue, missingVars, err := substituteTemplate(headerValue, secrets)
+			resolvedValue, missingVars, err := SubstituteTemplate(headerValue, secrets)
 			if err != nil {
 				logging.Printf("Error processing header '%s': %v", headerName, err)
 				logging.Debugf("Template error details: header='%s', value='%s', error=%v", headerName, headerValue, err)
@@ -561,7 +557,7 @@ func processEndpointTemplating(endpoint Endpoint, secrets Secrets) (Endpoint, []
 
 		// Process environment variables for stdio endpoints
 		for envName, envValue := range originalEnv {
-			resolvedValue, missingVars, err := substituteTemplate(envValue, secrets)
+			resolvedValue, missingVars, err := SubstituteTemplate(envValue, secrets)
 			if err != nil {
 				logging.Printf("Error processing environment variable '%s': %v", envName, err)
 				logging.Debugf("Template error details: env='%s', value='%s', error=%v", envName, envValue, err)
@@ -580,9 +576,9 @@ func processEndpointTemplating(endpoint Endpoint, secrets Secrets) (Endpoint, []
 	return endpoint, allMissingVars
 }
 
-// substituteTemplate replaces {{ var_name }} placeholders with secret values
+// SubstituteTemplate replaces {{ var_name }} placeholders with secret values
 // Returns the resolved string, a slice of missing variable names, and any error
-func substituteTemplate(text string, secrets Secrets) (string, []string, error) {
+func SubstituteTemplate(text string, secrets Secrets) (string, []string, error) {
 	var missingVars []string
 
 	for {

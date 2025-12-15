@@ -19,7 +19,7 @@ func substituteTemplateInEnv(env map[string]string, secrets Secrets) (map[string
 	var allMissing []string
 
 	for key, value := range env {
-		newValue, missing, err := substituteTemplate(value, secrets)
+		newValue, missing, err := SubstituteTemplate(value, secrets)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -116,7 +116,7 @@ func TestStdioEndpointValidation(t *testing.T) {
 				Command: "/usr/bin/mcp\x00server",
 			},
 			expectError: true,
-			errorMsg:    "command component contains invalid characters",
+			errorMsg:    "command validation failed: command contains control characters",
 		},
 		{
 			name: "valid command with args",
@@ -277,7 +277,7 @@ func TestTimeoutParsingForStdio(t *testing.T) {
 			endpoint: StdioEndpoint{
 				Type:           EndpointTypeStdio,
 				Command:        "/usr/local/bin/server",
-				EndpointShared: EndpointShared{Timeout: toPtr(24 * time.Hour)}},// Assuming max is 1 hour
+				EndpointShared: EndpointShared{Timeout: toPtr(24 * time.Hour)}}, // Assuming max is 1 hour
 
 			expectError: true,
 		},
@@ -663,7 +663,7 @@ func TestStdioEndpointHeadersValidation(t *testing.T) {
 			if len(tt.secrets) > 0 {
 				processedHeaders = make(map[string]string)
 				for key, value := range tt.headers {
-					substituted, _, e := substituteTemplate(value, tt.secrets)
+					substituted, _, e := SubstituteTemplate(value, tt.secrets)
 					if e != nil {
 						err = e
 						break

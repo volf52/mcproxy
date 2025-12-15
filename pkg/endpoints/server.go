@@ -73,14 +73,8 @@ func NewServer(port string, endpoints map[string]config.Endpoint, secrets config
 			continue
 		}
 
-		// Initialize stdio endpoints
-		if stdioEp, ok := endpoint.(*StdioEndpoint); ok {
-			if err := stdioEp.Initialize(); err != nil {
-				initErrors[name] = fmt.Errorf("failed to initialize stdio endpoint '%s': %w", name, err)
-				endpoint.Close() // Clean up resources
-				continue
-			}
-		}
+		// Note: stdio endpoints are initialized lazily when the first request comes in
+		// This avoids starting subprocesses at server startup
 
 		endpointMap[name] = endpoint
 	}

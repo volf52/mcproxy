@@ -23,17 +23,20 @@ type client struct {
 	initResult  *InitializeResult
 	initVersion int64 // Increment on each re-init
 
-	// Channels for coordination
-	initDone    chan struct{}
-	initChanged chan struct{} // Notified when process restarts
+	// Synchronization for concurrent initialization
+	initOnce    *sync.Once    // Per-version once initialization
+	initOnceMu  sync.Mutex    // Mutex to protect initOnce recreation
+	initWaiters int32         // Count of waiting goroutines
+	initDone    chan struct{} // Channel for notifying completion (recreated each time)
+	initDoneMu  sync.Mutex    // Mutex to protect initDone recreation
 }
 
 // NewMCPClient creates a new MCP client using the given process manager
 func NewMCPClient(pm *ProcessManager) MCPClient {
 	c := &client{
-		pm:          pm,
-		initDone:    make(chan struct{}),
-		initChanged: make(chan struct{}, 1),
+		pm:       pm,
+		initOnce: &sync.Once{},
+		initDone: make(chan struct{}),
 	}
 
 	// Start re-initialization monitor
@@ -59,23 +62,28 @@ func (c *client) reinitMonitor() {
 				logging.Printf("Client: detected process stop, will re-initialize on restart")
 				atomic.StoreInt32(&c.initState, 0)
 
-				// Notify waiters that init state changed
-				select {
-				case c.initChanged <- struct{}{}:
-				default:
-				}
+				// Wake up any waiters by recreating the channel
+				c.initDoneMu.Lock()
+				c.initDone = make(chan struct{})
+				c.initDoneMu.Unlock()
 			}
 
 			lastRunningState = currentlyRunning
 
-		case <-c.initChanged:
-			// State changed, check if we need to re-initialize
-			if c.pm.IsRunning() && atomic.LoadInt32(&c.initState) == 0 {
-				go func() {
-					if _, err := c.Initialize(c.initArgs); err != nil {
-						logging.Printf("Client: failed to re-initialize: %v", err)
-					}
-				}()
+			// Check if we need to re-initialize
+			// Only re-initialize if we have initArgs (meaning we were initialized before)
+			if currentlyRunning && atomic.LoadInt32(&c.initState) == 0 {
+				c.initMu.RLock()
+				hasInitArgs := c.initArgs != nil
+				c.initMu.RUnlock()
+
+				if hasInitArgs {
+					go func() {
+						if _, err := c.Initialize(c.initArgs); err != nil {
+							logging.Printf("Client: failed to re-initialize: %v", err)
+						}
+					}()
+				}
 			}
 		}
 	}
@@ -99,7 +107,7 @@ func (c *client) Initialize(params *InitializeParams) (*InitializeResult, error)
 			// Check if process is still running
 			if !c.pm.IsRunning() {
 				// Process died, reset state and try again
-				atomic.StoreInt32(&c.initState, 0)
+				c.resetInitState(0)
 				continue
 			}
 			// Return cached result
@@ -111,51 +119,98 @@ func (c *client) Initialize(params *InitializeParams) (*InitializeResult, error)
 		case 0: // Not initialized
 			if atomic.CompareAndSwapInt32(&c.initState, 0, 1) {
 				// We won the race to initialize
-				result, err := c.doInitialize()
-				c.initMu.Lock()
-				c.initResult = result
-				c.initErr = err
-				c.initMu.Unlock()
-
-				if err != nil {
-					atomic.StoreInt32(&c.initState, 3)
-				} else {
-					atomic.StoreInt32(&c.initState, 2)
-					atomic.AddInt64(&c.initVersion, 1)
-				}
-
-				close(c.initDone)
+				// Create a new done channel for this initialization cycle
+				c.initDoneMu.Lock()
 				c.initDone = make(chan struct{})
-				return result, err
+				c.initDoneMu.Unlock()
+
+				// Use sync.Once to ensure initialization happens only once per version
+				var initResult *InitializeResult
+				var initErr error
+
+				c.initOnceMu.Lock()
+				atomic.AddInt64(&c.initVersion, 1)
+				c.initOnce = &sync.Once{} // New version, new Once
+				c.initOnceMu.Unlock()
+
+				c.initOnce.Do(func() {
+					initResult, initErr = c.doInitialize()
+					c.initMu.Lock()
+					c.initResult = initResult
+					c.initErr = initErr
+					c.initMu.Unlock()
+
+					if initErr != nil {
+						atomic.StoreInt32(&c.initState, 3)
+					} else {
+						atomic.StoreInt32(&c.initState, 2)
+					}
+
+					// Wake up all waiters by closing the channel
+					c.initDoneMu.Lock()
+					close(c.initDone)
+					c.initDoneMu.Unlock()
+				})
+
+				return initResult, initErr
 			}
 			// Lost race, loop again
 
 		case 1: // Another goroutine initializing
-			// Wait for completion
+			// Get the current done channel to wait on
+			c.initDoneMu.Lock()
+			currentDone := c.initDone
+			atomic.AddInt32(&c.initWaiters, 1)
+			c.initDoneMu.Unlock()
+
+			// Wait for initialization to complete or timeout
 			select {
-			case <-c.initDone:
-				// Check result
-				c.initMu.RLock()
-				err := c.initErr
-				result := c.initResult
-				c.initMu.RUnlock()
-				return result, err
-			case <-c.initChanged:
-				// Process restarted, try again
+			case <-currentDone:
+				// Initialization completed, check the result
+				state = atomic.LoadInt32(&c.initState)
+				if state == 2 {
+					c.initMu.RLock()
+					result := c.initResult
+					c.initMu.RUnlock()
+					atomic.AddInt32(&c.initWaiters, -1)
+					return result, nil
+				} else if state == 3 {
+					c.initMu.RLock()
+					err := c.initErr
+					c.initMu.RUnlock()
+					atomic.AddInt32(&c.initWaiters, -1)
+					return nil, err
+				}
+				// State changed unexpectedly, loop again
+				atomic.AddInt32(&c.initWaiters, -1)
 				continue
+
 			case <-time.After(30 * time.Second):
+				atomic.AddInt32(&c.initWaiters, -1)
 				return nil, fmt.Errorf("initialization timeout")
 			}
 
 		case 3: // Error state
 			// Try to re-initialize if process is running
 			if c.pm.IsRunning() {
-				atomic.StoreInt32(&c.initState, 0)
+				c.resetInitState(0)
 				continue
 			}
-			return nil, fmt.Errorf("initialization failed and process is not running")
+			c.initMu.RLock()
+			err := c.initErr
+			c.initMu.RUnlock()
+			return nil, fmt.Errorf("initialization failed and process is not running: %w", err)
 		}
 	}
+}
+
+// resetInitState safely resets the initialization state
+func (c *client) resetInitState(newState int32) {
+	atomic.StoreInt32(&c.initState, newState)
+	// Wake up any waiters by recreating the channel
+	c.initDoneMu.Lock()
+	c.initDone = make(chan struct{})
+	c.initDoneMu.Unlock()
 }
 
 // doInitialize performs the actual initialization work
@@ -360,11 +415,7 @@ func (c *client) HealthCheck() error {
 	response, err := c.pm.SendRequest(ctx, MethodToolsList, nil)
 	if err != nil {
 		// Trigger re-initialization on failure
-		atomic.StoreInt32(&c.initState, 0)
-		select {
-		case c.initChanged <- struct{}{}:
-		default:
-		}
+		c.resetInitState(0)
 		return fmt.Errorf("health check failed: %w", err)
 	}
 
@@ -421,6 +472,7 @@ func (b *MCPHTTPBridge) Initialize(args []string) error {
 			Name:    "mcproxy",
 			Version: "1.0.0",
 		},
+		Experimental: make(map[string]interface{}),
 	}
 
 	// Add args to experimental if provided

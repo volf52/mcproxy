@@ -1,33 +1,49 @@
 {
   // Example configuration with both HTTP and stdio endpoints
   "endpoints": {
-    // HTTP endpoint (existing functionality)
+    // HTTP endpoint that forwards to httpbin.org
     "httpbin": {
       "type": "http",
       "url": "https://httpbin.org/post",
       "headers": {
+        "Authorization": "Bearer {{ API_TOKEN }}",
         "Content-Type": "application/json",
-        "User-Agent": "mcproxy/1.0"
-      }
+        "User-Agent": "mcproxy/1.0",
+        "X-Custom-Header": "{{ CUSTOM_HEADER_VALUE }}"
+      },
+      "timeout": "30s",
+      "maxBodySize": 5242880
     },
 
-    // Example stdio MCP endpoint (requires an MCP server executable)
+    // Another HTTP endpoint for echo service
+    "echo": {
+      "type": "http",
+      "url": "https://httpbin.org/echo",
+      "headers": {
+        "X-API-Key": "{{ ECHO_API_KEY }}",
+        "X-Source": "mcproxy"
+      },
+      "timeout": "15s"
+    },
+
+    // Stdio MCP endpoint for filesystem access
     "filesystem": {
       "type": "stdio",
-      "command": ["/usr/local/bin/mcp-filesystem-server", "/tmp/shared"],
+      "command": "/usr/bin/env bunx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
       "env": {
-        "LOG_LEVEL": "debug"
+        "NODE_ENV": "production",
+        "LOG_LEVEL": "{{ LOG_LEVEL }}",
+        "MCP_DEBUG": "{{ MCP_DEBUG_FLAG }}"
       },
-      "args": ["--read-only"],
-      "headers": {
-        "X-MCP-Endpoint": "filesystem"
-      }
+      "timeout": "45s",
+      "maxBodySize": 10485760
     }
   },
 
-  "globalTimeout": "60s",
+  "globalTimeout": 60000000000,
   "globalMaxBodySize": 10485760,
-
+  "logFile": "",
   "server": {
     "readTimeout": 30,
     "writeTimeout": 30,

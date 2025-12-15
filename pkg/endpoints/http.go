@@ -35,7 +35,7 @@ func NewHTTPEndpoint(name string, cfg config.Endpoint, secrets map[string]string
 	// Process secret templates in headers
 	processedHeaders := make(map[string]string)
 	for headerName, headerValue := range httpEndpoint.Headers {
-		resolvedValue, missingVars, err := substituteTemplate(headerValue, secrets)
+		resolvedValue, missingVars, err := config.SubstituteTemplate(headerValue, secrets)
 		if err != nil {
 			logging.Printf("Error processing header '%s' for endpoint '%s': %v", headerName, name, err)
 			// Use original value if template processing fails
@@ -240,40 +240,4 @@ func (e *HTTPEndpoint) filterHopByHopHeaders(header http.Header) http.Header {
 	}
 
 	return filtered
-}
-
-// substituteTemplate replaces {{ var_name }} placeholders with secret values
-// Returns the resolved string, a slice of missing variable names, and any error
-func substituteTemplate(text string, secrets map[string]string) (string, []string, error) {
-	var missingVars []string
-
-	for {
-		start := strings.Index(text, "{{")
-		if start == -1 {
-			break // no more templates
-		}
-
-		end := strings.Index(text, "}}")
-		if end == -1 {
-			return text, missingVars, fmt.Errorf("unclosed template placeholder in: %s", text)
-		}
-
-		if end <= start+1 {
-			return text, missingVars, fmt.Errorf("invalid template placeholder in: %s", text)
-		}
-
-		varName := strings.TrimSpace(text[start+2 : end])
-		if varName == "" {
-			return text, missingVars, fmt.Errorf("empty template variable in: %s", text)
-		}
-
-		if secret, exists := secrets[varName]; exists {
-			text = text[:start] + secret + text[end+2:]
-		} else {
-			missingVars = append(missingVars, varName)
-			text = text[:start] + text[end+2:] // remove the placeholder
-		}
-	}
-
-	return text, missingVars, nil
 }

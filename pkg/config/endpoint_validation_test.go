@@ -629,7 +629,7 @@ func TestValidateStdioEndpoints(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "command component contains invalid characters",
+			errorMsg:    "command contains control characters",
 		},
 		{
 			name: "invalid endpoint type",
@@ -741,7 +741,7 @@ func TestValidateStdioEndpoints(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errorMsg:    "command component contains invalid characters",
+			errorMsg:    "command contains invalid trailing whitespace",
 		},
 	}
 

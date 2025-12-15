@@ -152,11 +152,17 @@ func TestProxyHandler_RequestTooLarge(t *testing.T) {
 // TestProxyHandler_Timeout tests timeout handling
 func TestProxyHandler_Timeout(t *testing.T) {
 	mockClient := NewMockHTTPClient()
-	// Simulate timeout by setting a delay and returning an error
-	mockClient.SetDelay(100 * time.Millisecond)
-	mockClient.SetError(context.DeadlineExceeded)
 
-	shortTimeout := 50 * time.Millisecond
+	// Use channels to synchronize instead of fixed sleep
+	requestStarted := make(chan struct{})
+	mockClient.SetHandler(func(req *http.Request) (*http.Response, error) {
+		close(requestStarted)
+		// Wait for context to be canceled by the server's timeout
+		<-req.Context().Done()
+		return nil, req.Context().Err()
+	})
+
+	shortTimeout := 10 * time.Millisecond
 	endpoints := map[string]config.Endpoint{
 		"timeout": {
 			Value: config.HttpEndpoint{
@@ -178,18 +184,11 @@ func TestProxyHandler_Timeout(t *testing.T) {
 	req := httptest.NewRequest("POST", "/mcp/timeout", nil)
 	w := httptest.NewRecorder()
 
-	start := time.Now()
 	handler(w, req)
-	elapsed := time.Since(start)
 
 	// Should return 504 Gateway Timeout
 	if w.Code != http.StatusGatewayTimeout {
 		t.Errorf("Expected status 504 for timeout, got %d", w.Code)
-	}
-
-	// Should fail quickly
-	if elapsed > 200*time.Millisecond {
-		t.Errorf("Request took too long: %v, should have timed out quickly", elapsed)
 	}
 
 	mockClient.AssertRequestCount(t, 1)
@@ -198,8 +197,16 @@ func TestProxyHandler_Timeout(t *testing.T) {
 // TestProxyHandler_ContextCancellation tests context cancellation
 func TestProxyHandler_ContextCancellation(t *testing.T) {
 	mockClient := NewMockHTTPClient()
-	mockClient.SetDelay(500 * time.Millisecond)
-	mockClient.SetError(context.Canceled)
+
+	// Use channels to synchronize instead of fixed sleep
+	requestStarted := make(chan struct{})
+	finishRequest := make(chan struct{})
+
+	mockClient.SetHandler(func(req *http.Request) (*http.Response, error) {
+		close(requestStarted)
+		<-finishRequest
+		return nil, context.Canceled
+	})
 
 	endpoints := map[string]config.Endpoint{
 		"cancel": {
@@ -216,15 +223,23 @@ func TestProxyHandler_ContextCancellation(t *testing.T) {
 
 	// Create context that will be canceled
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	handler := srv.createProxyHandler("cancel", endpoints["cancel"])
 	req := httptest.NewRequest("POST", "/mcp/cancel", nil).WithContext(ctx)
 	w := httptest.NewRecorder()
 
-	// Cancel context immediately
+	// Run handler in a goroutine because it will block until we close finishRequest
+	handlerDone := make(chan struct{})
+	go func() {
+		handler(w, req)
+		close(handlerDone)
+	}()
+
+	// Wait for request to start, then cancel and let it finish
+	<-requestStarted
 	cancel()
-	handler(w, req)
+	close(finishRequest)
+	<-handlerDone
 
 	// Should handle cancellation gracefully
 	if w.Code == http.StatusOK {
