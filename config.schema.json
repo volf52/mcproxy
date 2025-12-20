@@ -2,11 +2,28 @@
   "$id": "https://mcproxy.dev/schemas/config.json",
   "title": "MCProxy Config",
   "description": "Config for MCProxy",
+  "required": [
+    "endpoints"
+  ],
   "additionalProperties": false,
   "definitions": {
     "ConfigEndpoint": {
       "oneOf": [
         {
+          "title": "HTTP Endpoint",
+          "required": [
+            "type",
+            "url"
+          ],
+          "definitions": {
+            "TimeDuration": {
+              "description": "Duration in string format (e.g. '30s', '1m') or integer (seconds)",
+              "type": [
+                "string",
+                "integer"
+              ]
+            }
+          },
           "properties": {
             "headers": {
               "description": "Custom headers to add to requests to the upstream server.",
@@ -26,11 +43,8 @@
               ]
             },
             "timeout": {
-              "description": "Per-endpoint timeout in seconds (overrides global timeout).",
-              "type": [
-                "null",
-                "integer"
-              ]
+              "$ref": "#/definitions/TimeDuration",
+              "description": "Per-endpoint timeout in seconds (overrides global timeout)."
             },
             "type": {
               "description": "Endpoint type: 'http' for HTTP upstream or 'stdio' for MCP stdio process (default: 'http')",
@@ -47,6 +61,20 @@
           "type": "object"
         },
         {
+          "title": "Stdio Endpoint",
+          "required": [
+            "type",
+            "command"
+          ],
+          "definitions": {
+            "TimeDuration": {
+              "description": "Duration in string format (e.g. '30s', '1m') or integer (seconds)",
+              "type": [
+                "string",
+                "integer"
+              ]
+            }
+          },
           "properties": {
             "args": {
               "description": "Arguments to pass to the MCP stdio endpoint during initialization",
@@ -74,11 +102,8 @@
               ]
             },
             "timeout": {
-              "description": "Per-endpoint timeout in seconds (overrides global timeout).",
-              "type": [
-                "null",
-                "integer"
-              ]
+              "$ref": "#/definitions/TimeDuration",
+              "description": "Per-endpoint timeout in seconds (overrides global timeout)."
             },
             "type": {
               "description": "Endpoint type: 'http' for HTTP upstream or 'stdio' for MCP stdio process (default: 'http')",
@@ -90,7 +115,10 @@
           },
           "type": "object"
         }
-      ]
+      ],
+      "discriminator": {
+        "propertyName": "type"
+      }
     },
     "ConfigServerConfig": {
       "properties": {
@@ -112,6 +140,13 @@
         }
       },
       "type": "object"
+    },
+    "TimeDuration": {
+      "description": "Duration in string format (e.g. '30s', '1m') or integer (seconds)",
+      "type": [
+        "string",
+        "integer"
+      ]
     }
   },
   "properties": {
@@ -128,7 +163,7 @@
       "type": "integer"
     },
     "globalTimeout": {
-      "type": "integer"
+      "$ref": "#/definitions/TimeDuration"
     },
     "logFile": {
       "type": "string"
