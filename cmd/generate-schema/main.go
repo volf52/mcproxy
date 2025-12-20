@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"mcproxy/pkg/config"
 
@@ -14,6 +15,13 @@ import (
 func main() {
 	// Create a reflector
 	reflector := jsonschema.Reflector{}
+
+	// Custom mapping for time.Duration to allow both string (e.g. "30s") and integer (seconds)
+	durationSchema := jsonschema.Schema{}
+	durationSchema.AddType(jsonschema.String)
+	durationSchema.AddType(jsonschema.Integer)
+	durationSchema.WithDescription("Duration in string format (e.g. '30s', '1m') or integer (seconds)")
+	reflector.AddTypeMapping(time.Duration(0), durationSchema)
 
 	if e := config.AddGeneratorReflection(&reflector); e != nil {
 		log.Fatal(e)

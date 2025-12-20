@@ -66,8 +66,8 @@ func (e *EndpointShared) UnmarshalJSON(data []byte) error {
 
 type HttpEndpoint struct {
 	EndpointShared
-	Type    EndpointType      `json:"type" enum:"http" description:"Endpoint type: 'http' for HTTP upstream or 'stdio' for MCP stdio process (default: 'http')"`
-	Url     string            `json:"url" description:"The upstream server url"`
+	Type    EndpointType      `json:"type" enum:"http" description:"Endpoint type: 'http' for HTTP upstream or 'stdio' for MCP stdio process (default: 'http')" required:"true"`
+	Url     string            `json:"url" description:"The upstream server url" required:"true"`
 	Headers map[string]string `json:"headers" description:"Custom headers to add to requests to the upstream server."`
 }
 
@@ -75,8 +75,8 @@ func (e HttpEndpoint) isContainer() {}
 
 type StdioEndpoint struct {
 	EndpointShared
-	Type    EndpointType      `json:"type" enum:"stdio" description:"Endpoint type: 'http' for HTTP upstream or 'stdio' for MCP stdio process (default: 'http')"`
-	Command string            `json:"command" description:"Command to execute for stdio endpoints"`
+	Type    EndpointType      `json:"type" enum:"stdio" description:"Endpoint type: 'http' for HTTP upstream or 'stdio' for MCP stdio process (default: 'http')" required:"true"`
+	Command string            `json:"command" description:"Command to execute for stdio endpoints" required:"true"`
 	Args    []string          `json:"args,omitempty" description:"Arguments to pass to the MCP stdio endpoint during initialization"`
 	Env     map[string]string `json:"env,omitempty" description:"Environment variables to set for the stdio process"`
 }
@@ -201,30 +201,33 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 }
 
 func AddGeneratorReflection(ref *jsonschema.Reflector) error {
+	// Reflect types and ensure they have titles to encourage named definitions
 	httpSchema, err := ref.Reflect(HttpEndpoint{})
 	if err != nil {
 		return err
 	}
+	httpSchema.WithTitle("HTTP Endpoint")
+	ref.AddTypeMapping(HttpEndpoint{}, httpSchema)
 
 	stdioSchema, err := ref.Reflect(StdioEndpoint{})
 	if err != nil {
 		return err
 	}
+	stdioSchema.WithTitle("Stdio Endpoint")
+	ref.AddTypeMapping(StdioEndpoint{}, stdioSchema)
 
-	unionSchema := jsonschema.Schema{
-		OneOf: []jsonschema.SchemaOrBool{
-			httpSchema.ToSchemaOrBool(),
-			stdioSchema.ToSchemaOrBool(),
-		},
-		// ExtraProperties: map[string]interface{}{
-		// 	"discriminator": map[string]interface{}{
-		// 		"propertyName": "type",
-		// 		"mapping": map[string]string{
-		// 			"http":  httpSchema.Ref,
-		// 			"stdio": *stdioSchema.Ref,
-		// 		},
-		// 	},
-		// },
+	unionSchema := jsonschema.Schema{}
+	unionSchema.WithOneOf(
+		httpSchema.ToSchemaOrBool(),
+		stdioSchema.ToSchemaOrBool(),
+	)
+
+	// Add discriminator for OpenAPI compatibility and better tool support
+	discriminator := map[string]interface{}{
+		"propertyName": "type",
+	}
+	unionSchema.ExtraProperties = map[string]interface{}{
+		"discriminator": discriminator,
 	}
 
 	ref.AddTypeMapping(Endpoint{}, unionSchema)

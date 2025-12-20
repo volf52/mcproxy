@@ -22,7 +22,7 @@ type ServerConfig struct {
 
 // Config represents the main configuration structure
 type Config struct {
-	Endpoints         map[string]Endpoint `json:"endpoints"`
+	Endpoints         map[string]Endpoint `json:"endpoints" required:"true"`
 	LogFile           string              `json:"logFile,omitempty"`
 	GlobalTimeout     time.Duration       `json:"globalTimeout,omitempty"`                          // Global timeout for all endpoints (default: 60s)
 	GlobalMaxBodySize int64               `json:"globalMaxBodySize,omitempty"`                      // Global max body size in bytes (default: 10MB)
